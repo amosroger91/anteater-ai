@@ -19,7 +19,7 @@ try {
     await saveProgram(pool, program);
     log('PROGRAM_DISCOVERED', { program: program.id, result: 'fixture' });
     const jobs = new Jobs(pool, config.MAX_CONCURRENT_JOBS, config.JOB_LEASE_SECONDS);
-    await jobs.enqueue(program.id, 'fixture-api', 'inspect_http_target', 'fixture-v1:inspect');
+    await jobs.enqueue(program.id, 'fixture-api', 'inspect_http_target');
     const job = await jobs.claim();
     if (job) {
       log('JOB_STARTED', { program: program.id, job: job.id });

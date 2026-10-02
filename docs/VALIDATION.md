@@ -19,3 +19,15 @@ Ollama inference and real MCP execution were not exercised. The demo and continu
 - A dirty-checkout probe was rejected without losing the local test file; a clean repeat sync succeeded at the same pin.
 - GitHub PR CI passed unit tests, registry validation, PostgreSQL integration tests and the fixture demonstration.
 - No upstream installer, security script, browser, password attack or research target was executed during import. Runtime adapter validation remains separate work.
+
+## Execution-depth validation — 2026-10-02
+
+- `npm run check`: TypeScript build and 71 unit tests passed.
+- `npm run verify:local`: 14 reported PostgreSQL tests passed, then worker/demo fixture replay retained exactly one completed job and observation.
+- `npm run deps:check`: all 29 pinned source-only dependencies verified.
+- New tests exercise capped downloads (including socket destruction), total DNS/response deadlines, private address rejection, DNS-to-connect authorization order, strict TLS options, redirect non-following and query redaction, cancelled/revoked requests, manifest limits/scope/collisions, action/path admission, valid bounded model JSON and repair-metadata rejection.
+- Database tests exercise atomic evidence/audit/follow-up persistence, duplicate-completion fencing, policy-revision invalidation and new work, asset-URL lease retirement, passive-adapter opt-in and three concurrent leases across competing claimers.
+- Transport tests use injected synthetic streams. No live research target, remote model or upstream security tool was executed. An actual owned HTTPS endpoint and real Ollama inference still need separate validation.
+- No 10x throughput or finding-yield claim has been measured. Request-rate limits remain authoritative.
+
+The earlier fixture-only descriptions above describe the earlier milestone. The opt-in passive collector is now implemented; production limitations remain in READINESS.md.

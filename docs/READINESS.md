@@ -1,27 +1,32 @@
-# Before real authorized research
+# Readiness and remaining work
 
-- [x] Strict configuration with default kill switch and mandatory policy/scope.
-- [x] Exact/wildcard scope and exclusion precedence, expiry and malformed-input tests.
-- [x] Fixture-only typed tool gate; arbitrary commands and unknown assets rejected.
-- [x] PostgreSQL leases, fencing, deduplication, bounded retries, policy revisions and rate reservations.
-- [x] Versioned database migrations with analysis provenance and human-verification constraints.
-- [x] Schema-constrained, grounded model analysis with deterministic sampling and failed-run recording.
-- [x] Policy-bound passive posture checks, same-port redirect checks and fixed aggressive scanner controls.
-- [x] Database-backed program state and replayable Markdown export.
-- [x] Pinned web-focused upstream source catalog with daily Dependabot update configuration.
-- [ ] Review licenses and package tested releases for each selected runtime adapter; importing source does not approve execution.
-- [ ] Real source adapter with policy provenance, terms/access review and policy-change handling.
-- [ ] Operator-reviewed policy compiler, source hashes and authenticated approval records.
-- [ ] Complete scope semantics: public suffixes, paths, ports, IDNs and explicit exclusions.
-- [ ] DNS/IP authorization for the live executor, rebinding defenses and per-hop certificate validation.
-- [ ] Authenticated MCP transport, bounded structured tools, sandbox lifecycle and egress proxy.
-- [ ] Independent executor authorization and immediate kill-switch/revocation/cancellation propagation.
-- [ ] Distributed per-request rate enforcement inside multi-request tools.
-- [ ] Scheduler, automatic lease renewal, graceful shutdown, retry jitter and dead-letter operations.
-- [ ] Durable append-only audit events, evidence hashing/redaction/retention, authenticated human review.
-- [ ] Findings transition service; no automatic report submission.
-- [ ] Model registry loader, provider health checks, adversarial tool-output tests and local benchmarks.
-- [ ] Crash/reboot and backup/restore tests, persistent outbox sweeper, metrics and operator dashboard.
-- [ ] Independent isolation, authorization and adversarial QA before enabling any live executor.
+## Implemented and tested locally
 
-Setting `ALLOW_ACTIVE_TESTING=true` cannot bypass this checklist: no live executor is implemented.
+- [x] Default kill switch, strict configuration, mandatory reviewed policy and scope.
+- [x] Exact/wildcard hosts, exclusion precedence, expiry, exact-path allowlists and rejected ambiguous target forms.
+- [x] Fixture provider plus bounded reviewed JSON manifests with identifier/scope validation.
+- [x] Typed gateway actions: root, robots, sitemap and fixed OpenAPI path.
+- [x] Separately enabled passive HTTPS executor: one pinned address, certificate validation, no redirects, total deadline, byte/header caps and cancellation.
+- [x] PostgreSQL leases, fencing, retries, policy revisions, heartbeat and shared rate reservations.
+- [x] Concurrent worker batches, signal handling and persistent outbox sweep.
+- [x] Atomic observation persistence, hash metadata, observation-level findings, audit events and policy-filtered follow-ups.
+- [x] Valid bounded model features, schema-constrained classification, grounded evidence and one repair attempt.
+- [x] Replayable Markdown exports including hypotheses and audit events.
+- [x] 29 pinned source dependencies and configured update PRs.
+
+## Before production operation
+
+- [ ] Source ingestion with terms/access review, authenticated policy approvals and source hashes.
+- [ ] Public-suffix rules, broader path/port/IDN semantics and independently reviewed address/egress controls.
+- [ ] Authenticated MCP transport, executor isolation and sandbox lifecycle.
+- [ ] Immediate fleet-wide kill/revocation propagation; environment switches are process-local.
+- [ ] Manifest hot reload, periodic revisit scheduling, retry jitter and dead-letter operator controls.
+- [ ] Durable analysis recovery after a crash between observation completion and model persistence.
+- [ ] Least-privilege audit roles, tamper resistance, evidence retention/redaction policy and full replay artifacts where needed.
+- [ ] Finding transitions and identity-backed human verification/submission.
+- [ ] Verify installed model digest, adversarial evaluation corpus, local benchmarks and fleet model concurrency limits.
+- [ ] Production backup/restore and crash/reboot testing, monitoring, health checks and operator UI.
+- [ ] Review upstream licenses and test each packaged runtime adapter.
+- [ ] Independent live adapter/isolation QA on an owned test environment.
+
+The fixture remains the default. `ENABLE_PASSIVE_HTTP=true` enables only the bounded read-only worker adapter after policy authorization. `ALLOW_ACTIVE_TESTING` does not enable that adapter or grant additional tools. No live research target was contacted during local verification. A 10x effectiveness improvement has not been measured; throughput is still constrained by reviewed request rates.

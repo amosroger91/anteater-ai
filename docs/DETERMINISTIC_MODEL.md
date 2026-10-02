@@ -1,162 +1,47 @@
-# Deterministic model plan
+# Deterministic model contract
 
-> **Status:** The model contract and persistence separation described here are implemented. The live network executor and model-worker scheduler remain deliberately disabled; the orchestrator still uses the fixture provider and fixture model.
+## Implemented behavior
 
-The scope engine, job queue, tool gateway, and model reducer are deterministic by construction. The model path is intentionally a small closed form so a local model such as `qwen3:4b` cannot choose tools, expand scope, or write unvalidated prose into an observation.
+Authorization, action selection and follow-up scheduling live in code. Models classify bounded observations; they cannot call tools, expand scope, change policy, verify a finding or submit a report. The worker defaults to the fixture provider/model. Reviewed file manifests and a separately enabled passive HTTPS executor are available. `LLM_PROVIDER=ollama` selects the local model adapter.
 
-This plan keeps authorization, tool selection, and state transitions in code. The model fills a small closed form. Invalid output never becomes a job, and no output — valid or not — can create a job outside the current policy allowlist.
+## Input and output
 
-## Where a weak model gets a vote today
+`boundedObservation` projects tool output into valid JSON containing status, content type, selected headers, deterministic signals, a short body snippet, body length/hash and capture truncation. Header ordering is stable. Input is at most 3,500 characters; optional fields are removed when necessary instead of cutting JSON mid-string. Prior raw model output and arbitrary extra fields are excluded. Website text remains untrusted, including instructions embedded in snippets.
 
-`analyzeObservation` in `packages/agent-runtime/index.ts` sends one sentence and the raw observation, and asks for "a short hypothesis."
+`AnalysisSchema` in `packages/llm` is the single output contract; `z.toJSONSchema` derives the request grammar from it:
 
-`OllamaProvider` in `packages/llm/index.ts` calls `/api/chat` with `num_ctx: 4096` and `num_predict: 512`. It checks only that `message.content` is a string of at most 100,000 characters. It never inspects `done_reason`, so a reply cut off at the `num_predict` ceiling is accepted as if complete. The call sets no JSON schema, `temperature`, `seed`, or `think: false`. The context guard is 16,000 characters, which is larger than a 4,096-token window, so a real observation can be truncated inside Ollama before the model answers — and Ollama reports that silently, not as an error. No test exercises `generate` at all.
+- `label`: `no_signal`, `auth_boundary`, `input_reflection`, `error_detail`, `security_header_gap` or `unknown`.
+- `evidence`: up to two exact substrings of the observation input, each 8–200 characters.
+- `followUp`: `none` or `human_review`.
 
-The orchestrator commits the tool observation before it invokes analysis:
+The local provider uses `think: false`, `stream: false`, temperature 0, seed 1, top_k 10, num_ctx 4096 and num_predict 192. It requires a configured `sha256:` model digest, allows only loopback HTTP, refuses redirects and bounds each request to 60 seconds. It accepts the assistant-role response envelope, requires `done_reason=stop`, rejects thinking traces and checks reported prompt usage against the context budget. Zod validates the returned object independently of the grammar.
 
-```typescript
-const observation = await new ToolGateway(pool, loadConfig).invoke(job, job.action, job.asset_id);
-const observationId = await jobs.complete(job, observation);
-const analysis = await analyzeObservation(new FixtureLLM(), observation);
-await jobs.recordAnalysis(job, observationId, analysis);
-```
+The configured digest is recorded provenance, **not proof that the mutable Ollama tag currently contains those weights**. Registry-based digest verification remains open. Fixed sampling also does not guarantee identical results across hardware, drivers or model/runtime versions.
 
-`Jobs.complete` writes only the tool response to `observations.body`, `tool_runs.result`, and `research_jobs.result`. `exportWorkspace` therefore projects tool data into `RECON.md`. The model raw reply and accepted object live in `agent_runs`; an accepted object is copied into `hypotheses` only after schema and grounding checks. `FixtureLLM` returns the same JSON contract as Ollama, so the demo exercises the reducer.
+## Grounding and repair
 
-Two more defects sit in the same demo block:
+Evidence must occur verbatim in the exact JSON feature string supplied to the model. One repair attempt receives the original features and a fixed error code, never the previous reply. Repair metadata cannot count as evidence: grounding always compares against the original features. Accepted runs hash the actual prompt used; failed repairs retain the repair input for the same provenance calculation.
 
-- When `analyzeObservation` throws, the tool job remains completed and a `parse_failed` row is written to `agent_runs`. A model failure never re-invokes the tool.
-- `recordAnalysis` writes `agent_runs`, `hypotheses`, and the export outbox in one transaction, so an accepted hypothesis cannot be separated from its provenance.
+Grounding proves only that the quoted text was observed. It does not prove exploitability, severity or authorization. Empty evidence is permitted for a classification; there is no `verified` label.
 
-qwen3 thinks by default. With `num_predict: 512`, a 4B model often spends the budget on the thinking trace. Ollama returns that in `message.thinking` and leaves `content` empty or cut off. The parser only reads `content`.
+## Durable separation
 
-## Make the model fill a form
+1. The gateway returns a tool observation.
+2. `Jobs.complete` atomically writes job completion, observation, tool run, capture hash metadata, deterministic observation-level findings, audit event, authorized follow-up jobs and export intent.
+3. The model analyzes the projected features after that transaction commits.
+4. Accepted analysis and its raw reply, model metadata, sampling options, prompt hash and schema version are written to `agent_runs`; the validated object is linked to the observation in `hypotheses`.
+5. Parse failures are recorded separately. They never cause a completed HTTP request to run again.
 
-A 4B model is usable as a classifier over a short feature list. It is a poor planner, a poor tool caller, and a poor writer of evidence. Shrink the call until the output is a closed object that code can accept or throw away.
+`RECON.md` contains tool data. `HYPOTHESES.md` exposes accepted model suggestions for operator triage; `followUp=human_review` is currently a triage hint, with no automated promotion service. `FINDINGS.md` contains deterministic posture signals in `OBSERVATION` state. `AUDIT.md` projects execution events. Raw model text never becomes a tool observation or another prompt.
 
-Run a deterministic extractor first. From the tool result, code already knows status, content type, header names, body size, and whether the body is JSON. Hand the model that feature object plus a short snippet, a few hundred characters, not the workspace.
+Database checks require `verified_by` for `VERIFIED` and `human_reviewer` for `SUBMITTED`. Authenticated identities and a finding-transition service are still required; a non-null text column alone does not establish who reviewed a finding.
 
-Define the output object once, as a Zod schema in `packages/llm`, and derive the Ollama `format` object from it with `z.toJSONSchema()` (the installed zod 4 exports this). Do not hand-write the JSON schema beside the Zod one: two hand-kept copies drift, and the grammar the model is constrained by must be the same shape the code later parses. The reducer stores this object:
+## Deterministic follow-ups
 
-- `label`: a short enum such as `no_signal`, `auth_boundary`, `input_reflection`, `error_detail`, `security_header_gap`, `unknown`
-- `evidence`: at most two strings, each at most 200 characters
-- `followUp`: `none` or `human_review`
+Only a successful 2xx root observation can propose fixed follow-ups. HTML/text can propose `/robots.txt` and `/sitemap.xml`; JSON or OpenAPI/Swagger hints can propose `/.well-known/openapi.json`. Both action and exact path must be in the current reviewed policy. The planner never follows arbitrary links or model suggestions. Keys include program, asset, target, action and policy revision; the original fixture key is retained for upgrade-safe replay.
 
-Pin sampling and decoding on the chat call. `think: false` turns thinking off; `format` carries the derived schema; the options below make greedy decoding reproducible:
+## Validation and remaining work
 
-```json
-{
-  "think": false,
-  "format": "<generated by z.toJSONSchema(Analysis)>",
-  "options": {
-    "temperature": 0,
-    "seed": 1,
-    "top_k": 10,
-    "num_ctx": 4096,
-    "num_predict": 192
-  }
-}
-```
+Tests cover request options, role envelopes, incomplete/thinking responses, fabricated evidence, one bounded repair, repair-metadata rejection, valid JSON under oversized input, persistence separation, atomic follow-ups and fixture replay. No real model inference or research-target traffic was used for this validation.
 
-Ollama's grammar enforces structure and the enum, but it does not enforce `maxLength` or `maxItems`. Zod does, so the code-side parse is what actually bounds evidence length and count — the grammar is a first pass, not the guard.
-
-Put the same schema, in words, in the system prompt, with two short examples. Leave the user message as data only.
-
-Check the response envelope before trusting `content`:
-
-- Reject when `done_reason !== 'stop'` — `length` means the reply was cut off at `num_predict` and the JSON is likely truncated.
-- Reject when `message.thinking` is non-empty — it means `think: false` was ignored (an older Ollama, or a model that forces thinking), and the budget went to the trace.
-- Compare `prompt_eval_count` against `num_ctx - num_predict`. If the prompt filled the window, the observation was truncated inside Ollama and the feature object is incomplete. The character-count guard cannot see this; the token count can.
-
-Validate in code after the grammar:
-
-- Zod-parse with `.strict()`. A bad parse is a failed run.
-- Every evidence string must be an exact substring of the **user message** the model was shown — not the whole prompt, or evidence copied from the few-shot examples would pass. Decide one canonical form to compare (the JSON-escaped text the model literally received) and compare against that consistently. Require a minimum length of about 8 characters, so `"200"` or a single token cannot pass as "grounding". A string that fails is dropped; if nothing survives, the hypothesis is dropped. This catches a fluent hallucination.
-- Allow one repair call. The repair prompt carries only the original user message and a fixed error code (for example `evidence_not_substring`) — never the model's previous reply. Feeding the bad reply back would reintroduce exactly the model text this plan keeps out of prompts. A second failure is recorded as `parse_failed` and stops.
-- Record on `agent_runs`: the raw text, the accepted object, the sampling options, and enough to reproduce the run — the model digest (from `/api/tags`, not the mutable `qwen3:4b` tag), a hash of the prompt template, and the schema version. Without those, two "deterministic" runs cannot be compared.
-
-There is no `verified` value in the schema. The findings table already refuses `SUBMITTED` without `human_reviewer`. Keep `VERIFIED` behind a mechanical gate of the same kind, not a convention: add `CHECK (status <> 'VERIFIED' OR verified_by IS NOT NULL)` to `findings`, mirroring the existing `SUBMITTED` check, and/or run the model worker under a database role with no `UPDATE` on `findings`. A human, or a deterministic replay, sets `VERIFIED`. This model does not. Say explicitly which component consumes `followUp: human_review`, and how an accepted hypothesis maps onto the `findings` states.
-
-Temperature 0 plus a fixed seed is stable in practice for greedy decoding. It is not a bitwise guarantee across GPU driver changes. The guarantee to rely on is narrower: invalid output never becomes a job, and a valid decision is a pure function of the accepted struct.
-
-## Keep model text out of the next prompt
-
-Write three different rows:
-
-- `observations` holds only what `ToolGateway` returned.
-- `agent_runs` holds the raw reply and the parse result.
-- `hypotheses` gets a row only after the schema and the substring check pass.
-
-The separation is enforced by the versioned migration runner and `002_hardening.sql`. `agent_runs` stores raw text, status, sampling options, model digest, prompt hash, schema version, and creation time. `hypotheses` links to both the accepted run and its observation with a unique dedupe key.
-
-The next prompt may include the accepted label. It does not include the previous raw reply, and it does not include `RECON.md`. Exports stay projections. Authorization stays on the policy row. Stopping the leak at step 4 means all four sinks named earlier — `observations.body`, `tool_runs.result`, `research_jobs.result`, and through `observations` the `RECON.md` export — carry only `ToolGateway` output, never the analysis.
-
-## Posture execution is policy-bound
-
-The CSV posture runner is an operator interface, not an authorization source. `posture-scan.ts` now requires a reviewed `PolicySchema` JSON file for every row and checks the same `inspect_http_target` action before either passive or aggressive work. Aggressive mode additionally requires `GLOBAL_KILL_SWITCH=false`, a loopback egress proxy, an absolute Nuclei binary path, a local template directory, and a recorded template commit digest. It cannot override the permanent deny-list for intrusive tags, disables redirects, and invokes Nuclei against the address selected by the pinned passive check with the original hostname supplied only as SNI/Host metadata. A future live executor must move this adapter behind `ToolGateway` so the policy revision and egress lease are database-bound rather than supplied by a CSV.
-
-Size the prompt to the window configured on the call. Reserve `num_predict` plus the system prompt, and refuse the call when the remainder cannot hold the feature object. Keep `num_ctx` at 4096 for an 8 GB card. A longer window makes a 4B model less reliable and crowds out the weights.
-
-## When the research loop exists, the model picks an id
-
-`Jobs.enqueue` currently accepts whatever action string the caller supplies. The gateway later rejects anything other than the leased job's action and asset, so a bad action does not run. A planner can still fill the queue with rows that fail only at execution.
-
-When `select_next_research_task` is built, code lists the legal next jobs from the asset, `allowedActions`, the accepted label, and jobs already completed. Cap that list at a handful of entries with ids the code minted. The model returns one of those ids, or `stop`. `enqueue` loads that row and builds the dedupe key itself, for example `revision:asset:action:label`. An id that is not in the list enqueues nothing.
-
-Check the allowlist at insert time as well. The action must be in the current policy allowlist. A CHECK constraint on `research_jobs.action` against the known action set is a cheap database-level backstop for the same invariant.
-
-The scheduler is where the "poisoned observation creates no job" promise needs care, because the candidate list is built partly from the accepted label. A response body can steer the model toward a particular label, and the substring check will not catch it: evidence quoted from the poisoned body is a genuine substring of that body. So the honest guarantee is narrower than "no influence". It is:
-
-- No job is ever enqueued for an action outside the current policy allowlist, whatever the label.
-- The label can only reorder or narrow candidates the code already minted for this asset. It can never add a candidate the code did not offer.
-
-A fixed priority table — unseen assets first, then labels the operator cares about — is the default scheduler. Use the model as a ranker only after an evaluation shows it beats that table.
-
-Leave Ollama tool calling unused. A tool call is control flow, and small models emit those unreliably. The gateway already requires `tool === job.action` and `assetId === job.asset_id`. That remains the only way a tool runs.
-
-## Which future roles stay in code
-
-| Role | What decides |
-| --- | --- |
-| Program / scope | Parser plus operator review. `reviewed: true` stays an operator bit. The model may flag a paragraph for a human. |
-| Web / API / mobile classification | Header, path, and body signals first. The model breaks ties on a closed enum. |
-| Recon organization | SQL. |
-| Scheduler | The candidate-id list above. Default order is code. |
-| Analysis | The label schema above. |
-| Verification | Replay and compare. The model does not set `VERIFIED`. |
-| Documentation | The existing exporter. It renders Markdown from rows. |
-
-## Score models on the contract
-
-Freeze a set of synthetic observations with expected labels, including bodies that say to ignore the rules or to emit a verified finding. Track:
-
-- schema-valid rate
-- evidence-substring rate
-- label accuracy
-- jobs enqueued for an action outside the allowlist (must be zero)
-- drift of the enqueued job set from a label-free baseline (how much the model's label changed which in-allowlist jobs ran)
-
-The allowlist number stays zero because `enqueue` loads a code-minted candidate row and never reads a model field for the action. The drift number is the honest measure of a poisoned observation's reach: it should be small and bounded, not necessarily zero, since the label is allowed to reorder in-allowlist candidates.
-
-Promote a model when those hold at `temperature: 0` across two runs. A model that writes a more convincing paragraph and fails the schema is a worse fit than `qwen3:4b` on this contract.
-
-`FixtureLLM` should return the same object the schema requires. The test should assert the parsed label and an empty follow-up, so the demo exercises the reducer before a real weight file is loaded.
-
-## Concurrency
-
-`MAX_CONCURRENT_JOBS` allows up to 16 jobs, but an 8 GB card serves one 4B model call at a time. The model stage needs its own semaphore of one (or a short queue), independent of job concurrency, so a future multi-job worker cannot issue overlapping `generate` calls that thrash the GPU or quietly serialize inside Ollama with no timeout accounting.
-
-## Readiness
-
-`docs/READINESS.md` folds all of this into one broad "model registry loader … and local benchmarks" line. Add a distinct checklist item — "schema-constrained analysis contract (grammar + Zod + grounding) and a frozen eval set passing at `temperature: 0` across two runs" — so this contract gates real research explicitly rather than hiding inside the registry line.
-
-## Implementation order
-
-0. Add a migration runner and a `002` migration: `agent_runs` columns (raw text, status, sampling options, model digest, prompt hash, schema version, `created_at`), `hypotheses` links and a dedupe key, the `findings` `VERIFIED` CHECK, and the `research_jobs.action` CHECK. **Implemented.**
-1. Define the Zod schema in `packages/llm` and derive the Ollama `format` object from it with `z.toJSONSchema()`. **Implemented.**
-2. Set `think: false`, `temperature: 0`, `seed: 1`, `top_k: 10`, and a `num_predict` that fits the object. Align the context guard with `num_ctx`, and reject on `done_reason`, `message.thinking`, and a prompt that filled the window.
-3. Parse, grounding-check (user message only, min length, canonical form), and allow one repair carrying only the error code. Persist raw text only on `agent_runs`, with the reproducibility fields.
-4. Make analysis a stage downstream of a committed observation, so a model failure never requeues the tool. Stop spreading analysis into `observations.body`, `tool_runs.result`, and `research_jobs.result` in the demo, and fold the `agent_runs` insert into the same transaction. Insert `hypotheses` only from an accepted struct. **Implemented.**
-5. Add a stubbed-`fetch` test for `OllamaProvider.generate`: thinking-only output, a `length` stop, extra/truncated fields, invalid JSON, and non-substring evidence — all failing closed, with no GPU in CI. Change `FixtureLLM` and `tests/llm.test.ts` to the schema, including an injected observation that must create no job.
-6. Add the frozen observation set and the scores above before comparing models.
-7. When the scheduler arrives, enqueue only code-minted candidate ids, reject actions outside the policy allowlist at insert time, and add the model-stage semaphore.
+Remaining work includes an adversarial evaluation corpus with acceptance metrics, real hardware/model benchmarks, digest verification against installed weights, recovery of model analysis after a crash between observation completion and analysis persistence, model concurrency budgets across workers, authenticated human review and least-privilege database roles. These are explicit limits of the current implementation.

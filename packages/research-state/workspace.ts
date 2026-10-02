@@ -4,12 +4,14 @@ import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { transaction } from './db.js';
 import { PolicySchema } from '../scope-engine/index.js';
-import type { fixture } from '../../fixtures/program.js';
+import { ProgramSchema, type Program } from '../bounty-providers/index.js';
 
-export async function saveProgram(pool: pg.Pool, program: typeof fixture) {
+export async function saveProgram(pool: pg.Pool, program: Program) {
+  program = ProgramSchema.parse(program);
   const policy = PolicySchema.parse(program.policy);
   if (policy.programId !== program.id) throw new Error('policy_program_mismatch');
   await transaction(pool, async c => {
+    await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`program:${program.id}`]);
     await c.query(`INSERT INTO programs(id,name,platform,program_url,categories) VALUES($1,$2,$3,$4,$5)
       ON CONFLICT(id) DO UPDATE SET name=excluded.name,platform=excluded.platform,program_url=excluded.program_url,categories=excluded.categories,updated_at=now()`,
       [program.id,program.name,program.platform,program.programUrl,JSON.stringify(program.categories)]);
@@ -17,6 +19,10 @@ export async function saveProgram(pool: pg.Pool, program: typeof fixture) {
     const ids = program.assets.map(asset => asset.id);
     await c.query(`UPDATE assets SET active=false WHERE program_id=$1 AND NOT (id = ANY($2::text[]))`, [program.id, ids]);
     for (const asset of program.assets) {
+      // Retire work tied to a former URL before changing the asset in place.
+      await c.query(`UPDATE research_jobs j SET status='failed',lease_token=NULL,lease_until=NULL,lease_heartbeat_at=NULL,result=$3
+        FROM assets a WHERE j.asset_id=a.id AND j.program_id=a.program_id AND a.id=$1 AND a.program_id=$2
+        AND a.url<>$4 AND j.status IN ('queued','running')`, [asset.id, program.id, JSON.stringify({ error: 'asset_url_changed' }), asset.url]);
       const result = await c.query(`INSERT INTO assets(id,program_id,url,active,policy_revision) VALUES($1,$2,$3,true,$4)
         ON CONFLICT(id) DO UPDATE SET url=excluded.url,active=true,policy_revision=excluded.policy_revision
         WHERE assets.program_id=excluded.program_id`, [asset.id,program.id,asset.url,policy.revision]);
@@ -42,6 +48,8 @@ export async function exportWorkspace(pool: pg.Pool, root: string, programId: st
     const assets = (await c.query('SELECT id,url,active,policy_revision FROM assets WHERE program_id=$1 ORDER BY id', [programId])).rows;
     const observations = (await c.query('SELECT id,body FROM observations WHERE program_id=$1 ORDER BY created_at,id', [programId])).rows;
     const findings = (await c.query('SELECT id,status,body FROM findings WHERE program_id=$1 ORDER BY id', [programId])).rows;
+    const hypotheses = (await c.query('SELECT id,body,observation_id,agent_run_id FROM hypotheses WHERE program_id=$1 ORDER BY id', [programId])).rows;
+    const audit = (await c.query('SELECT event,job_id,asset_id,metadata,created_at FROM audit_events WHERE program_id=$1 ORDER BY created_at,id', [programId])).rows;
     const jobs = (await c.query('SELECT id,status,attempts FROM research_jobs WHERE program_id=$1 ORDER BY created_at,id', [programId])).rows;
     const directory = resolve(root, programId);
     await mkdir(directory, { recursive: true });
@@ -54,6 +62,8 @@ export async function exportWorkspace(pool: pg.Pool, root: string, programId: st
       'ASSETS.md': '# Assets\n\n' + block(assets),
       'RECON.md': '# Observations\n\nObservations are not confirmed vulnerabilities.\n\n' + block(observations),
       'FINDINGS.md': '# Findings\n\nStates: OBSERVATION, HYPOTHESIS, CANDIDATE, VERIFICATION, VERIFIED, HUMAN_REVIEW, REJECTED, SUBMITTED.\n\n' + block(findings),
+      'HYPOTHESES.md': '# Accepted model hypotheses\n\nUnverified suggestions; human_review is an operator triage hint.\n\n' + block(hypotheses),
+      'AUDIT.md': '# Execution events\n\n' + block(audit),
       'HISTORY.md': '# Job history\n\n' + block(jobs),
     };
     for (const [name, content] of Object.entries(files)) {

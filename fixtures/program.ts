@@ -6,7 +6,7 @@ export const fixture = {
     programId: 'fixture-company', revision: 'fixture-v1', sourceUrl: 'https://bounty.example.test/policy',
     reviewed: true, expiresAt: '2099-01-01T00:00:00Z',
     allowed: ['*.example.test'], excluded: ['payments.example.test'],
-    allowedActions: ['inspect_http_target'], schemes: ['https'], ports: [443], requestsPerSecond: 1,
+    allowedActions: ['inspect_http_target'], allowedPaths: ['/'], schemes: ['https'], ports: [443], requestsPerSecond: 1,
   } satisfies Policy,
   assets: [{ id: 'fixture-api', url: 'https://api.example.test' }],
 };

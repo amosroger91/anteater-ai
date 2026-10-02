@@ -1,0 +1,24 @@
+{
+  "programs": [{
+    "id": "owned-web",
+    "name": "Owned web test environment",
+    "platform": "operator",
+    "programUrl": "https://bounty.example.test/",
+    "categories": ["WEB_APPLICATION", "API"],
+    "policy": {
+      "programId": "owned-web",
+      "revision": "review-1",
+      "sourceUrl": "https://bounty.example.test/policy",
+      "reviewed": true,
+      "expiresAt": "2099-01-01T00:00:00Z",
+      "allowed": ["api.example.test"],
+      "excluded": [],
+      "allowedActions": ["inspect_http_target", "inspect_robots", "inspect_sitemap", "inspect_openapi"],
+      "allowedPaths": ["/", "/robots.txt", "/sitemap.xml", "/.well-known/openapi.json"],
+      "schemes": ["https"],
+      "ports": [443],
+      "requestsPerSecond": 1
+    },
+    "assets": [{ "id": "owned-web-api", "url": "https://api.example.test" }]
+  }]
+}

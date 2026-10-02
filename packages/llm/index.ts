@@ -51,7 +51,7 @@ export class OllamaProvider implements LLMProvider {
     if (!response.ok) throw new Error('model_unavailable');
     const body = z.object({
       model: z.string().optional(),
-      message: z.object({ content: z.string().max(100000), thinking: z.string().optional() }).strict(),
+      message: z.object({ role: z.literal('assistant').optional(), content: z.string().max(100000), thinking: z.string().optional() }).strict(),
       done: z.literal(true).optional(),
       done_reason: z.string().optional(),
       prompt_eval_count: z.number().int().nonnegative().optional(),

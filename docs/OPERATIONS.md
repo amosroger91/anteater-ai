@@ -35,3 +35,36 @@ Public platform APIs do not hand out an anonymous, complete scope list. `npm run
 This milestone is not ready for autonomous deployment against live programs. Keep the kill switch on. Before production, use dedicated database credentials and network restrictions, TLS for remote database connections, versioned migrations, tested backups/restores, an authenticated operator interface, process supervision, a persistent scheduler and exporter, telemetry, host resource budgets and all items in READINESS.md. The local Compose password is a disposable development value only. No production rollout is provided or implied.
 
 The bounded demo and continuous worker close their database pools on normal completion and errors. The worker handles SIGINT/SIGTERM by stopping new claims; a forced termination leaves a lease that another worker can reclaim, and the heartbeat extends leases during long tool calls.
+
+## Reviewed program worker
+
+Copy `fixtures/programs.example.json` to an operator-controlled `reviewed-programs.json`. The example uses reserved `.test` names; replace them only with the actual reviewed program, source policy, expiry, scope, asset IDs and grants. The JSON is either an array of programs or an object with a `programs` array, limited to 1 MiB and 100 programs. Asset identifiers are globally unique. Each asset is a canonical HTTPS origin on port 443; paths belong in `allowedPaths`.
+
+| Action | Fixed request path |
+| --- | --- |
+| `inspect_http_target` | `/` |
+| `inspect_robots` | `/robots.txt` |
+| `inspect_sitemap` | `/sitemap.xml` |
+| `inspect_openapi` | `/.well-known/openapi.json` |
+
+Both the action and its exact path must be granted. Existing policies without `allowedPaths` default to `/` only. Do not grant a discovery path unless the program permits it. The worker never follows paths listed inside robots/sitemap/OpenAPI responses.
+
+For an authorized development environment, set these process variables before running the worker:
+
+```powershell
+$env:PROGRAM_SOURCE = 'file'
+$env:PROGRAMS_FILE = 'reviewed-programs.json'
+$env:ENABLE_PASSIVE_HTTP = 'true'
+$env:GLOBAL_KILL_SWITCH = 'false'
+$env:MAX_CONCURRENT_JOBS = '4'
+$env:MAX_REQUEST_RATE = '1'
+npm run worker
+```
+
+Rate remains bounded by both global configuration and program policy, regardless of concurrency. `--once` processes one batch and exports pending work; it does not promise to drain all follow-ups. Continuous mode drains allowed follow-ups and retries. SIGINT/SIGTERM abort collection and stop new claims; an already-running local model call can finish within its request deadline. Keep concurrency configuration uniform across workers.
+
+Manifests are loaded at startup. Restart after a reviewed change and increment the policy revision; completed work is deduplicated within that revision. There is no timer-based rescan or hot reload. Process environment switches cannot provide immediate fleet-wide revocation. Database policy/lease checks run at invocation, again after DNS resolution, and at completion; an in-flight external request cannot be undone.
+
+The collector sends one GET without credentials/cookies, pins the checked address, verifies TLS, follows no redirects and bounds headers, bytes and wall time. Capture hashes cover the retained byte prefix, with truncation recorded. Body snippets are bounded but are not guaranteed free of sensitive content. Audit events are inserted by the application; they are not tamper-proof. Keep database/workspace access restricted and implement retention before production use.
+
+`FINDINGS.md` contains observation-level posture signals. `HYPOTHESES.md` provides accepted model suggestions for human triage, and `AUDIT.md` records execution events. No state is automatically promoted to verified or submitted. The model defaults to the fixture; set `LLM_PROVIDER=ollama` and a configured model digest for real local classification. See the [model contract](DETERMINISTIC_MODEL.md) for digest and reproducibility limits.

@@ -16,3 +16,4 @@ posture-results/
 models.lock.json
 targets.csv
 bounty-inbox.json
+reviewed-programs*.json

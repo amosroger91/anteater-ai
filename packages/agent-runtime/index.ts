@@ -32,9 +32,27 @@ export interface AnalysisFailure {
 }
 
 export function boundedObservation(observation: unknown): string {
-  const serialized = JSON.stringify(observation);
-  if (!serialized) return '{}';
-  return serialized.length <= 3500 ? serialized : `${serialized.slice(0, 3500)}…`;
+  const source = observation && typeof observation === 'object' ? observation as Record<string, unknown> : {};
+  const text = (value: unknown, max: number) => typeof value === 'string' ? value.slice(0, max) : undefined;
+  const headers = source.headers && typeof source.headers === 'object' ? source.headers as Record<string, unknown> : {};
+  const features: Record<string, unknown> = {
+    kind: text(source.kind, 32), status: typeof source.status === 'number' ? source.status : undefined,
+    target: text(source.target, 200), contentType: text(source.contentType ?? headers['content-type'], 80),
+    error: text(source.error, 80), bodyBytes: typeof source.bodyBytes === 'number' ? source.bodyBytes : undefined,
+    bodySha256: text(source.bodySha256, 64), truncated: source.truncated === true,
+    headers: Object.fromEntries(Object.keys(headers).sort().slice(0, 6).map(key => [key.slice(0, 64), text(headers[key], 120)])),
+    signals: Array.isArray(source.signals) ? source.signals.slice(0, 4).map(signal => {
+      const item = signal && typeof signal === 'object' ? signal as Record<string, unknown> : {};
+      return { code: text(item.code, 40), severity: text(item.severity, 16), detail: text(item.detail, 80) };
+    }) : [],
+    bodySnippet: text(source.bodySnippet ?? source.body, 768), note: text(source.note, 150),
+  };
+  // Keep valid JSON even for highly escaped Unicode/control-character input.
+  for (const key of ['bodySnippet', 'note', 'headers', 'signals', 'target']) {
+    if (JSON.stringify(features).length <= 3500) break;
+    delete features[key];
+  }
+  return JSON.stringify(features);
 }
 
 export function analysisPromptHash(input: string): string {
@@ -74,7 +92,7 @@ export async function analyzeObservation(provider: LLMProvider, observation: unk
     const repairInput = `${input}\n{"repair":"${errorCode}"}`;
     response = await provider.generate({ system: ANALYSIS_SYSTEM_PROMPT, input: repairInput });
     try {
-      return { analysis: parseResponse(response, repairInput), rawText: response.text, ...metadata(response, repairInput), status: 'accepted' };
-    } catch { throw Object.assign(new Error('analysis_parse_failed'), { cause: errorCode, response, input }); }
+      return { analysis: parseResponse(response, input), rawText: response.text, ...metadata(response, repairInput), status: 'accepted' };
+    } catch { throw Object.assign(new Error('analysis_parse_failed'), { cause: errorCode, response, input: repairInput }); }
   }
 }

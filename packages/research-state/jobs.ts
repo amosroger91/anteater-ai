@@ -2,8 +2,9 @@ import type pg from 'pg';
 import { randomUUID } from 'node:crypto';
 import type { AnalysisFailure, AnalysisRun } from '../agent-runtime/index.js';
 import { transaction } from './db.js';
+import { authorize, PolicySchema, targetForAction, type Action } from '../scope-engine/index.js';
+import { followUpActions, jobKey } from '../web-executor/planning.js';
 
-export type Action = 'inspect_http_target';
 export interface Job {
   id: string; program_id: string; asset_id: string; action: Action; policy_revision: string;
   lease_token: string; attempts: number;
@@ -12,14 +13,30 @@ export interface Job {
 export class Jobs {
   constructor(private pool: pg.Pool, private concurrency = 1, private leaseSeconds = 30) {}
 
-  async enqueue(program: string, asset: string, action: Action, key: string) {
-    await this.pool.query(`
+  async enqueue(program: string, asset: string, action: Action, key?: string) {
+    return transaction(this.pool, c => this.enqueueOn(c, program, asset, action, key));
+  }
+
+  private async enqueueOn(c: pg.PoolClient, program: string, asset: string, action: Action, key?: string, expectedRevision?: string) {
+    await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`program:${program}`]);
+    const source = await c.query(`SELECT a.url,s.policy FROM assets a JOIN scope_rules s ON s.program_id=a.program_id
+      WHERE a.id=$1 AND a.program_id=$2 AND a.active=true FOR SHARE OF a,s`, [asset, program]);
+    const row = source.rows[0];
+    if (!row) return;
+    const parsed = PolicySchema.safeParse(row.policy);
+    if (!parsed.success || parsed.data.programId !== program || (expectedRevision && parsed.data.revision !== expectedRevision)) return;
+    const target = targetForAction(row.url, action);
+    if (!authorize(parsed.data, target, action, { GLOBAL_KILL_SWITCH: false }).allowed) return;
+    const dedupeKey = key ?? jobKey(program, asset, parsed.data.revision, target, action);
+    const id = randomUUID();
+    const inserted = await c.query(`
       INSERT INTO research_jobs(id,program_id,asset_id,action,dedupe_key,policy_revision)
       SELECT $1,$2,$3,$4,$5,s.policy->>'revision'
       FROM assets a JOIN scope_rules s ON s.program_id=a.program_id
       WHERE a.id=$3 AND a.program_id=$2 AND a.active=true
         AND s.policy->'allowedActions' ? $4
-      ON CONFLICT(dedupe_key) DO NOTHING`, [randomUUID(), program, asset, action, key]);
+      ON CONFLICT(dedupe_key) DO NOTHING`, [id, program, asset, action, dedupeKey]);
+    if (inserted.rowCount) await c.query(`INSERT INTO audit_events(id,event,program_id,job_id,asset_id,metadata) VALUES($1,'JOB_QUEUED',$2,$3,$4,$5)`, [randomUUID(), program, id, asset, JSON.stringify({ action, dedupeKey })]);
   }
 
   async claim(): Promise<Job | undefined> {
@@ -37,7 +54,7 @@ export class Jobs {
           WHERE candidate.attempts<candidate.max_attempts
             AND candidate.policy_revision=s.policy->>'revision'
             AND ((candidate.status='queued' AND candidate.available_at<=now()) OR (candidate.status='running' AND candidate.lease_until<=now()))
-          ORDER BY candidate.created_at FOR UPDATE SKIP LOCKED LIMIT 1)
+          ORDER BY candidate.created_at FOR UPDATE OF candidate SKIP LOCKED LIMIT 1)
         RETURNING j.*`, [randomUUID(), this.leaseSeconds]);
       return result.rows[0] as Job | undefined;
     });
@@ -52,11 +69,26 @@ export class Jobs {
   async complete(job: Job, observation: unknown): Promise<string> {
     const observationId = randomUUID();
     await transaction(this.pool, async c => {
+      await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`program:${job.program_id}`]);
+      const current = await c.query(`SELECT a.url,s.policy FROM assets a JOIN scope_rules s ON s.program_id=a.program_id
+        WHERE a.id=$1 AND a.program_id=$2 AND a.active=true AND a.policy_revision=$3 FOR SHARE OF a,s`, [job.asset_id, job.program_id, job.policy_revision]);
+      const row = current.rows[0];
+      if (!row || row.policy.revision !== job.policy_revision || !authorize(row.policy, targetForAction(row.url, job.action), job.action, { GLOBAL_KILL_SWITCH: false }).allowed) throw new Error('policy_changed');
       const changed = await c.query(`UPDATE research_jobs SET status='completed',result=$3,lease_token=NULL,lease_until=NULL,lease_heartbeat_at=NULL
         WHERE id=$1 AND lease_token=$2 AND status='running' AND lease_until>now() RETURNING id`, [job.id, job.lease_token, JSON.stringify(observation)]);
       if (!changed.rowCount) throw new Error('lost_lease');
       await c.query('INSERT INTO observations(id,program_id,job_id,body) VALUES($1,$2,$3,$4)', [observationId, job.program_id, job.id, JSON.stringify(observation)]);
       await c.query('INSERT INTO tool_runs(id,job_id,tool,result) VALUES($1,$2,$3,$4)', [randomUUID(), job.id, job.action, JSON.stringify(observation)]);
+      const value = observation && typeof observation === 'object' ? observation as Record<string, unknown> : {};
+      if (typeof value.bodySha256 === 'string') {
+        await c.query('INSERT INTO evidence(id,finding_id,sha256,body) VALUES($1,NULL,$2,$3)', [randomUUID(), value.bodySha256, JSON.stringify({ jobId: job.id, observationId, target: value.target ?? null, hashScope: value.hashScope ?? 'captured_bytes', bytes: value.bodyBytes ?? null, truncated: value.truncated ?? false })]);
+      }
+      const signals = Array.isArray(value.signals) ? value.signals.filter(signal => signal && typeof signal === 'object') : [];
+      for (const signal of signals) {
+        await c.query(`INSERT INTO findings(id,program_id,status,body) VALUES($1,$2,'OBSERVATION',$3)`, [randomUUID(), job.program_id, JSON.stringify({ jobId: job.id, observationId, signal })]);
+      }
+      await c.query(`INSERT INTO audit_events(id,event,program_id,job_id,asset_id,metadata) VALUES($1,'OBSERVATION_RECORDED',$2,$3,$4,$5)`, [randomUUID(), job.program_id, job.id, job.asset_id, JSON.stringify({ action: job.action, observationId })]);
+      for (const action of followUpActions(job.action, observation)) await this.enqueueOn(c, job.program_id, job.asset_id, action, undefined, job.policy_revision);
       await c.query(`INSERT INTO workspace_outbox(program_id) VALUES($1) ON CONFLICT(program_id) DO UPDATE SET revision=workspace_outbox.revision+1`, [job.program_id]);
     });
     return observationId;
@@ -74,6 +106,7 @@ export class Jobs {
         randomUUID(), job.program_id, JSON.stringify(run.analysis), runId, observationId, `${job.id}:analysis:${run.schemaVersion}`,
       ]);
       await c.query(`INSERT INTO workspace_outbox(program_id) VALUES($1) ON CONFLICT(program_id) DO UPDATE SET revision=workspace_outbox.revision+1`, [job.program_id]);
+      await c.query(`INSERT INTO audit_events(id,event,program_id,job_id,metadata) VALUES($1,'ANALYSIS_ACCEPTED',$2,$3,$4)`, [randomUUID(), job.program_id, job.id, JSON.stringify({ observationId, label: run.analysis.label })]);
     });
   }
 

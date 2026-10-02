@@ -1,41 +1,49 @@
-# Architecture — initial milestone
+# Architecture
 
-## Implemented boundary
+## Execution flow
 
-The first task is a fixture-only vertical slice. PostgreSQL is authoritative for normalized program metadata, reviewed versioned policies, assets, jobs, observations and export work. Agents receive bounded structured input. The model produces a schema-constrained hypothesis and raw provenance in an analysis row; it cannot rewrite policy, call arbitrary tools or submit reports.
+```text
+Fixture or reviewed JSON manifests
+             |
+Strict program/policy validation -> PostgreSQL assets and versioned jobs
+             |
+Global lease/concurrency gate -> current scope, action and exact-path authorization
+             |
+Synthetic fixture OR explicitly enabled DNS-pinned HTTPS GET
+             |
+Atomic observation + evidence metadata + posture signals + allowed follow-ups + audit
+             |
+Bounded feature projection -> fixture/Ollama classification -> accepted hypotheses
+             |
+Outbox sweep -> Markdown workspace and operator review
+```
 
-Discovery is an interface and a local fixture implementation. Classification is supplied by the fixture; real classification and policy ingestion are milestone 2. A production policy compiler must require explicit operator review and record the source document hash before accepting machine rules. A discovered hostname alone grants no permission.
+## Authorization and collection
 
-## Authorization
+The gateway resolves identifiers from the database and validates the job action, active lease, current asset/policy revision, expiry, exclusions and exact path. Asset inputs must be canonical HTTPS origins. Scope supports exact/wildcard DNS names, HTTPS port 443 and explicit paths; wildcard rules exclude their apex. Query strings, credentials, IP literals, IDNs and ambiguous path normalization are rejected.
 
-Every gateway invocation resolves the asset identifier and current policy from the database and verifies the active job lease. It checks the kill switch, strict schema, policy expiry, action allowlist, exact or wildcard host scope and exclusions. Unsupported target forms fail closed. The only implementation returns constant synthetic data for `fixture-api`; it performs no network I/O.
+Fixture operation is the default. The optional passive executor requires `ENABLE_PASSIVE_HTTP=true`, `GLOBAL_KILL_SWITCH=false` and a reviewed policy for every target/action/path. It resolves DNS once, rejects prohibited address classes, then rechecks authorization and reserves the request rate immediately before connecting to the selected address. TLS verifies the original hostname via SNI, certificates are required to validate, and redirects are recorded without being followed. Each GET has a total 10-second budget including DNS/gateway waits, a 16 KiB header cap and a configurable captured-body cap (64 KiB default). Oversized downloads are terminated. Headers exclude cookie values; redirect query/fragment data is removed. Response snippets can still contain sensitive application data and need operator-controlled storage.
 
-HTTPS port 443 and whole origins are the only supported scope forms. This intentionally rejects legitimate path-scoped programs until that semantics is implemented. DNS answers, redirect destinations, public suffix validation, policy revocation during a network request and connection-time IP pinning are not implemented. No live backend exists to bypass these omissions.
+There is no general crawler, shell, authenticated MCP transport or active attack executor. Upstream source dependencies do not register themselves as tools. The existing CSV posture interface is separate from the worker and retains its own documented controls.
 
-## Durable jobs
+## Scheduling and durability
 
-Enqueue uses a unique deduplication key. Claim serializes a global concurrency decision with a PostgreSQL advisory transaction lock and selects work with `FOR UPDATE SKIP LOCKED`. A lease token fences stale workers. Expired jobs are reclaimable up to three attempts; exhausted leases become failed. Completion validates the token and atomically records the result, observation, tool run and export intent. Failures use bounded delayed retries.
+The worker loads its manifest at startup, seeds root jobs for every asset and processes bounded concurrent batches. `--once` processes one batch; continuous mode drains follow-ups and retries and sweeps pending exports. Reloading a manifest requires restart. A new policy revision or target identity creates a new dedupe key; completed work is not periodically rescanned. The original fixture key remains stable across upgrades.
 
-This is at-least-once execution with deduplicated persistence, not exactly-once external side effects. Long-running tasks need heartbeat renewal, cancellation, resource budgets and an idempotent executor before release. The current demo is a single bounded iteration, not a scheduler service. The configured concurrency ceiling must be uniform across processes. Rate reservations use database time and a separate lock to apply both global and program limits atomically; blocked callers must retry later.
+Claim serializes the fleet concurrency count with a PostgreSQL advisory lock and selects jobs with `FOR UPDATE SKIP LOCKED`. The concurrency setting must match across workers. Lease tokens fence stale owners; heartbeat failure aborts an in-flight request. SIGINT/SIGTERM stop new claims and abort collection. A force-killed worker leaves reclaimable work. Execution is at least once; persistence is deduplicated. Requests that reached a server before a crash can repeat.
 
-## Markdown persistence
+Completion atomically records observations, tool runs, prefix-hash metadata, deterministic signals in OBSERVATION state, audit events, authorized fixed-path follow-up jobs and export intent. Follow-up admission requires both current action and path authorization. Stale policy/asset state is checked again before completion. Analysis occurs after commit and cannot trigger a tool retry.
 
-Program files have schema/revision headers and JSON blocks under fixed Markdown headings. The database transaction queues an export revision. The exporter serializes per-program writers, writes each generated file to a temporary sibling then renames it, and acknowledges only the revision it read. A failed export remains pending and can be replayed. A crash between renames may leave a mixed revision set; rerunning reconciles it. This is eventual consistency, not a multi-file filesystem transaction.
+## State and export
 
-`PROGRAM.md` holds metadata; `SCOPE.md` holds policy; `ASSETS.md` holds asset IDs and URLs; `RECON.md` holds observations; `FINDINGS.md` holds findings and states; `HISTORY.md` holds job status/attempts. `NOTES.md` belongs to the operator and is never overwritten. Exports remain readable with PostgreSQL offline. Export roots must be trusted, operator-owned directories; filesystem adversaries and arbitrary symlink parent trees are outside the MVP threat model.
+Ordered migrations create schema and constraints; `003_execution_depth.sql` extends actions and adds audit events. Application writes to the audit table are insert-only; it is not yet tamper-proof or protected by a dedicated database role. Hashes describe captured bytes, which may be truncated. Only bounded snippets and metadata are retained, not a complete replay archive.
 
-## Workflow framework decision
+The exporter serializes per-program writes, writes temporary siblings and renames them, then acknowledges only the outbox revision read. A crash may leave a mixed file set; another sweep reconciles it. `PROGRAM.md`, `SCOPE.md`, `ASSETS.md`, `RECON.md`, `FINDINGS.md`, `HYPOTHESES.md`, `AUDIT.md` and `HISTORY.md` are projections. `NOTES.md` remains operator-owned. Export directories must be trusted.
 
-Temporal was evaluated first: durable workflows and activity recovery suit future multi-stage research and long human-review waits. For one short bounded fixture task, another service and worker SDK add operational cost without simplifying the current slice. PostgreSQL leases keep the MVP small. Revisit Temporal when the graph includes cancellation trees, versioned multi-step workflows and durable human signals. Redis is likewise deferred; PostgreSQL already owns locks, jobs and rate reservations.
+## Model and findings boundaries
 
-## Web-development dependency layer
+Models receive valid bounded feature JSON, produce a strict classification and quote only observed evidence. Raw responses and accepted hypotheses remain separate from tool data. See [the model contract](DETERMINISTIC_MODEL.md). Deterministic posture signals are observations, not confirmed vulnerabilities. Finding verification/submission requires future authenticated review and transition services.
 
-The project prioritizes web application source review, API contracts, browser behavior, HTTP/TLS configuration, password-form policy and authorized web testing. The source-only dependency catalog tracks 29 upstream repositories using Git submodules. Dependabot proposes daily revision updates; reviewed gitlinks keep the source reproducible. Sparse import avoids entire password corpora and unrelated bulk data. No dependency is automatically registered as an agent tool. Offline source analysis and fixture adapters are the next integration step; every eventual network adapter must enforce scope and program policy independently.
+## Operational limits
 
-## Planned roles
-
-Program, recon, web, API, analysis, verification, documentation and scheduler roles are represented in the model registry type. Only observation analysis runs in this slice. Future roles communicate through typed persisted tasks, never an unbounded shared conversation. Each role gets a restricted tool set and a token/time budget. No host shell is exposed.
-
-## Findings and operations
-
-The schema reserves observations, hypotheses, findings, evidence, tool runs and agent runs. No finding promotion or submission API exists. A database constraint requires a reviewer for SUBMITTED, but production also needs identity-backed approval and audit trails. JSON events report bounded lifecycle metadata without raw prompts or response bodies. Backups, metrics, reconciliation daemon, scheduler health checks and 24/7 operation remain future work.
+The current runner is a development implementation, not a hardened 24/7 service. Environment switches are process-local; immediate fleet-wide revocation, independent egress enforcement, authenticated approvals, retention, periodic rescans, durable analysis recovery, backup/restore tests, metrics and dashboard work remain on [the readiness list](READINESS.md). PostgreSQL leases avoid adding an orchestration service now; revisit a workflow engine when cancellation graphs and durable human-review waits justify it.
