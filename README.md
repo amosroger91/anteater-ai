@@ -26,6 +26,52 @@ The [dependency catalog](dependencies/README.md) contains **29 commit-pinned ups
 
 Run `npm run deps:sync` to fetch curated source/data checkouts, or `npm run deps:sync -- seclists zxcvbn-ts` to fetch selected dependencies. Sources live under `vendor/`; they are not automatically installed or executed. Common-password lists support offline web password-policy testing. Live network adapters remain disabled pending the readiness checklist.
 
+| Focus | Included upstream repositories |
+| --- | --- |
+| Secure web development | [OWASP WSTG](https://github.com/OWASP/wstg), [ASVS](https://github.com/OWASP/ASVS), [Cheat Sheet Series](https://github.com/OWASP/CheatSheetSeries) |
+| Browser behavior, accessibility and performance | [Playwright](https://github.com/microsoft/playwright), [Lighthouse](https://github.com/GoogleChrome/lighthouse) |
+| API contracts and testing | [Schemathesis](https://github.com/schemathesis/schemathesis), [Spectral](https://github.com/stoplightio/spectral) |
+| Web application assessment | [ZAP](https://github.com/zaproxy/zaproxy), [Nuclei](https://github.com/projectdiscovery/nuclei), [Nuclei templates](https://github.com/projectdiscovery/nuclei-templates), [Nikto](https://github.com/sullo/nikto) |
+| HTTP metadata, crawling and candidate hosts | [httpx](https://github.com/projectdiscovery/httpx), [Katana](https://github.com/projectdiscovery/katana), [Subfinder](https://github.com/projectdiscovery/subfinder) |
+| Web paths and parameters | [ffuf](https://github.com/ffuf/ffuf), [Gobuster](https://github.com/OJ/gobuster), [dirsearch](https://github.com/maurosoria/dirsearch), [Arjun](https://github.com/s0md3v/Arjun) |
+| HTTPS/TLS configuration | [testssl.sh](https://github.com/testssl/testssl.sh), [SSL Labs client](https://github.com/ssllabs/ssllabs-scan) |
+| Owned source, secrets and dependencies | [Retire.js](https://github.com/RetireJS/retire.js), [Semgrep](https://github.com/semgrep/semgrep), [Gitleaks](https://github.com/gitleaks/gitleaks), [Trivy](https://github.com/aquasecurity/trivy) |
+| Web wordlists | [SecLists](https://github.com/danielmiessler/SecLists), [Assetnote wordlists](https://github.com/assetnote/wordlists), [fuzzdb](https://github.com/fuzzdb-project/fuzzdb) |
+| Offline password policy and strength | SecLists common-password dictionaries, [zxcvbn](https://github.com/dropbox/zxcvbn), [zxcvbn-ts](https://github.com/zxcvbn-ts/zxcvbn) |
+
+SecLists is one repository used in two categories. Its selected password files are `10k-most-common.txt` and `xato-net-10-million-passwords-10000.txt`; its selected web data includes common paths and the small RAFT lists. These support owned web-form policy tests. Credential-pair dumps and online password-guessing workflows are not integrated.
+
+### How updates work
+
+- Each `vendor/*` Git submodule is pinned to an exact commit; `.gitmodules` identifies its upstream branch.
+- Dependabot checks upstream repositories daily at **08:00 America/Chicago**, and npm/GitHub Actions weekly. Updates arrive as PRs, with no automatic merge or replacement of running tools.
+- After reviewing and merging an update, fetch the reviewed pins locally:
+
+  ```sh
+  git -c fetch.recurseSubmodules=false pull --ff-only
+  npm ci
+  npm run deps:check
+  npm run deps:sync
+  ```
+
+- `deps:sync` checks origins and selected paths, preserves dirty checkouts by refusing to overwrite them, and fetches curated source without running upstream installers or recursively importing their submodules.
+
+Use a normal clone followed by `deps:sync`; recursive submodule cloning can download much larger trees, including material outside the curated selection. Sparse sources are inspection and adapter-development inputs, and may not contain everything needed to build an upstream tool. Upstream licenses remain applicable; repositories marked `REVIEW_REQUIRED` need their code/data terms reviewed before packaging. A commit pin establishes content identity, not permission to execute it.
+
+## Current implementation and next steps
+
+| Available now | Still to implement |
+| --- | --- |
+| Strict configuration, scope matching, exclusions and default kill switch | Full policy ingestion, approval provenance, DNS/IP and redirect enforcement |
+| PostgreSQL jobs, leases, fencing, deduplication and rate reservations | Continuous scheduler, lease renewal, cancellation and operational monitoring |
+| Durable observations and replayable Markdown exports | Versioned migrations and complete hypothesis/finding transition services |
+| Local Ollama provider interface and deterministic fixture model | Schema-constrained model analysis, grounded evidence and model evaluations |
+| 29 pinned source/data dependencies and update PRs | Reviewed runtime adapters, authenticated MCP and enforced sandbox egress |
+
+The checked-in Kali container is an inert, network-disabled boundary demonstration. It is not a ready-to-run scanner image. `ALLOW_ACTIVE_TESTING=true` does not enable a live executor. Findings submission remains a human-reviewed future stage.
+
+The dependency milestone passed the TypeScript build, **39 unit tests**, **9 reported PostgreSQL integration tests**, and fixture replay checks. All 29 curated source checkouts and their selected paths were verified. See [validation details](docs/VALIDATION.md), [operating instructions](docs/OPERATIONS.md), and the [live-research readiness checklist](docs/READINESS.md). Local container execution remained unverified because Docker Desktop failed to start; native PostgreSQL provided the local integration-test path.
+
 ## Quick start
 
 Requires Node.js 22+ and Docker Compose with a running Linux engine.
