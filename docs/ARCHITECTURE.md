@@ -28,6 +28,10 @@ Program files have schema/revision headers and JSON blocks under fixed Markdown 
 
 Temporal was evaluated first: durable workflows and activity recovery suit future multi-stage research and long human-review waits. For one short bounded fixture task, another service and worker SDK add operational cost without simplifying the current slice. PostgreSQL leases keep the MVP small. Revisit Temporal when the graph includes cancellation trees, versioned multi-step workflows and durable human signals. Redis is likewise deferred; PostgreSQL already owns locks, jobs and rate reservations.
 
+## Web-development dependency layer
+
+The project prioritizes web application source review, API contracts, browser behavior, HTTP/TLS configuration, password-form policy and authorized web testing. The source-only dependency catalog tracks 29 upstream repositories using Git submodules. Dependabot proposes daily revision updates; reviewed gitlinks keep the source reproducible. Sparse import avoids entire password corpora and unrelated bulk data. No dependency is automatically registered as an agent tool. Offline source analysis and fixture adapters are the next integration step; every eventual network adapter must enforce scope and program policy independently.
+
 ## Planned roles
 
 Program, recon, web, API, analysis, verification, documentation and scheduler roles are represented in the model registry type. Only observation analysis runs in this slice. Future roles communicate through typed persisted tasks, never an unbounded shared conversation. Each role gets a restricted tool set and a token/time budget. No host shell is exposed.

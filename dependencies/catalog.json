@@ -1,0 +1,380 @@
+{
+  "schemaVersion": 1,
+  "executionPolicy": "source-only",
+  "reviewedAt": "2026-10-02",
+  "dependencies": [
+    {
+      "id": "owasp-wstg",
+      "repository": "https://github.com/OWASP/wstg.git",
+      "branch": "master",
+      "category": "guidance",
+      "license": "CC-BY-SA-4.0",
+      "purpose": "Web application testing methodology",
+      "include": [
+        "/document/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "owasp-asvs",
+      "repository": "https://github.com/OWASP/ASVS.git",
+      "branch": "master",
+      "category": "guidance",
+      "license": "CC-BY-SA-4.0",
+      "purpose": "Web application security requirements",
+      "include": [
+        "/5.0/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "owasp-cheatsheets",
+      "repository": "https://github.com/OWASP/CheatSheetSeries.git",
+      "branch": "master",
+      "category": "guidance",
+      "license": "CC-BY-SA-4.0",
+      "purpose": "Secure web development patterns",
+      "include": [
+        "/cheatsheets/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "zap",
+      "repository": "https://github.com/zaproxy/zaproxy.git",
+      "branch": "main",
+      "category": "web-testing",
+      "license": "Apache-2.0",
+      "purpose": "Intercepting proxy and web testing framework",
+      "include": [
+        "/zap/src/main/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "nuclei",
+      "repository": "https://github.com/projectdiscovery/nuclei.git",
+      "branch": "dev",
+      "category": "web-testing",
+      "license": "MIT",
+      "purpose": "Template-driven checks; adapter approval required",
+      "include": [
+        "/cmd/",
+        "/pkg/",
+        "/internal/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "nuclei-templates",
+      "repository": "https://github.com/projectdiscovery/nuclei-templates.git",
+      "branch": "main",
+      "category": "web-data",
+      "license": "MIT",
+      "purpose": "Selected HTTP exposure and configuration templates; not auto-executed",
+      "include": [
+        "/http/exposures/",
+        "/http/misconfiguration/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "httpx",
+      "repository": "https://github.com/projectdiscovery/httpx.git",
+      "branch": "dev",
+      "category": "web-testing",
+      "license": "MIT",
+      "purpose": "HTTP metadata and technology discovery",
+      "include": [
+        "/cmd/",
+        "/common/",
+        "/runner/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "katana",
+      "repository": "https://github.com/projectdiscovery/katana.git",
+      "branch": "dev",
+      "category": "web-testing",
+      "license": "MIT",
+      "purpose": "Web crawler source",
+      "include": [
+        "/cmd/",
+        "/pkg/",
+        "/internal/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "subfinder",
+      "repository": "https://github.com/projectdiscovery/subfinder.git",
+      "branch": "dev",
+      "category": "web-testing",
+      "license": "MIT",
+      "purpose": "Passive hostname discovery; discovery never grants scope",
+      "include": [
+        "/cmd/",
+        "/pkg/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "ffuf",
+      "repository": "https://github.com/ffuf/ffuf.git",
+      "branch": "master",
+      "category": "web-testing",
+      "license": "MIT",
+      "purpose": "HTTP fuzzing source",
+      "include": [
+        "/pkg/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "gobuster",
+      "repository": "https://github.com/OJ/gobuster.git",
+      "branch": "master",
+      "category": "web-testing",
+      "license": "Apache-2.0",
+      "purpose": "Web content discovery source",
+      "include": [
+        "/cli/",
+        "/gobusterdir/",
+        "/gobusterfuzz/",
+        "/libgobuster/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "dirsearch",
+      "repository": "https://github.com/maurosoria/dirsearch.git",
+      "branch": "master",
+      "category": "web-testing",
+      "license": "REVIEW_REQUIRED",
+      "purpose": "Web path discovery source",
+      "include": [
+        "/lib/",
+        "/db/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "arjun",
+      "repository": "https://github.com/s0md3v/Arjun.git",
+      "branch": "master",
+      "category": "web-testing",
+      "license": "AGPL-3.0",
+      "purpose": "HTTP parameter discovery source",
+      "include": [
+        "/arjun/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "retire-js",
+      "repository": "https://github.com/RetireJS/retire.js.git",
+      "branch": "master",
+      "category": "source-analysis",
+      "license": "Apache-2.0",
+      "purpose": "Known-vulnerable JavaScript dependency detection",
+      "include": [
+        "/node/",
+        "/repository/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "testssl",
+      "repository": "https://github.com/testssl/testssl.sh.git",
+      "branch": "3.3dev",
+      "category": "web-testing",
+      "license": "GPL-2.0",
+      "purpose": "TLS configuration testing source",
+      "include": [
+        "/etc/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "ssllabs-scan",
+      "repository": "https://github.com/ssllabs/ssllabs-scan.git",
+      "branch": "master",
+      "category": "web-testing",
+      "license": "Apache-2.0",
+      "purpose": "TLS assessment API client; third-party data disclosure needs review",
+      "include": [],
+      "execution": "disabled"
+    },
+    {
+      "id": "nikto",
+      "repository": "https://github.com/sullo/nikto.git",
+      "branch": "main",
+      "category": "web-testing",
+      "license": "REVIEW_REQUIRED",
+      "purpose": "Web-server checks; review code and database terms separately",
+      "include": [
+        "/program/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "schemathesis",
+      "repository": "https://github.com/schemathesis/schemathesis.git",
+      "branch": "master",
+      "category": "api-testing",
+      "license": "MIT",
+      "purpose": "OpenAPI and GraphQL property-based testing",
+      "include": [
+        "/src/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "spectral",
+      "repository": "https://github.com/stoplightio/spectral.git",
+      "branch": "develop",
+      "category": "api-testing",
+      "license": "Apache-2.0",
+      "purpose": "OpenAPI and API-style linting",
+      "include": [
+        "/packages/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "playwright",
+      "repository": "https://github.com/microsoft/playwright.git",
+      "branch": "main",
+      "category": "web-development",
+      "license": "Apache-2.0",
+      "purpose": "Browser-based web application testing",
+      "include": [
+        "/packages/playwright-core/src/",
+        "/packages/playwright/src/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "lighthouse",
+      "repository": "https://github.com/GoogleChrome/lighthouse.git",
+      "branch": "main",
+      "category": "web-development",
+      "license": "Apache-2.0",
+      "purpose": "Web performance, accessibility and best-practice auditing",
+      "include": [
+        "/core/",
+        "/cli/",
+        "/shared/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "semgrep",
+      "repository": "https://github.com/semgrep/semgrep.git",
+      "branch": "develop",
+      "category": "source-analysis",
+      "license": "LGPL-2.1",
+      "purpose": "Static analysis of owned web source code",
+      "include": [
+        "/src/",
+        "/cli/src/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "gitleaks",
+      "repository": "https://github.com/gitleaks/gitleaks.git",
+      "branch": "master",
+      "category": "source-analysis",
+      "license": "MIT",
+      "purpose": "Secret detection in owned source repositories",
+      "include": [
+        "/cmd/",
+        "/detect/",
+        "/config/",
+        "/report/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "trivy",
+      "repository": "https://github.com/aquasecurity/trivy.git",
+      "branch": "main",
+      "category": "source-analysis",
+      "license": "Apache-2.0",
+      "purpose": "Dependency and container configuration analysis",
+      "include": [
+        "/cmd/",
+        "/pkg/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "seclists",
+      "repository": "https://github.com/danielmiessler/SecLists.git",
+      "branch": "master",
+      "category": "password-data",
+      "license": "MIT",
+      "purpose": "Selected web paths and common passwords for offline policy tests",
+      "include": [
+        "/Discovery/Web-Content/common.txt",
+        "/Discovery/Web-Content/raft-small-directories.txt",
+        "/Discovery/Web-Content/raft-small-files.txt",
+        "/Discovery/Web-Content/raft-small-words.txt",
+        "/Passwords/Common-Credentials/10k-most-common.txt",
+        "/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "assetnote-wordlists",
+      "repository": "https://github.com/assetnote/wordlists.git",
+      "branch": "master",
+      "category": "web-data",
+      "license": "Apache-2.0",
+      "purpose": "Web wordlist generation/reference source; external bulk datasets are not mirrored",
+      "include": [
+        "/data/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "fuzzdb",
+      "repository": "https://github.com/fuzzdb-project/fuzzdb.git",
+      "branch": "master",
+      "category": "web-data",
+      "license": "REVIEW_REQUIRED",
+      "purpose": "Predictable web paths and discovery reference data",
+      "include": [
+        "/discovery/predictable-filepaths/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "zxcvbn",
+      "repository": "https://github.com/dropbox/zxcvbn.git",
+      "branch": "master",
+      "category": "password-data",
+      "license": "MIT",
+      "purpose": "Password strength estimator and frequency data; offline only",
+      "include": [
+        "/src/",
+        "/data/"
+      ],
+      "execution": "disabled"
+    },
+    {
+      "id": "zxcvbn-ts",
+      "repository": "https://github.com/zxcvbn-ts/zxcvbn.git",
+      "branch": "master",
+      "category": "password-data",
+      "license": "MIT",
+      "purpose": "TypeScript password-strength libraries for web forms",
+      "include": [
+        "/packages/"
+      ],
+      "execution": "disabled"
+    }
+  ]
+}

@@ -1,0 +1,116 @@
+[submodule "owasp-wstg"]
+	path = vendor/owasp-wstg
+	url = https://github.com/OWASP/wstg.git
+	branch = master
+[submodule "owasp-asvs"]
+	path = vendor/owasp-asvs
+	url = https://github.com/OWASP/ASVS.git
+	branch = master
+[submodule "owasp-cheatsheets"]
+	path = vendor/owasp-cheatsheets
+	url = https://github.com/OWASP/CheatSheetSeries.git
+	branch = master
+[submodule "zap"]
+	path = vendor/zap
+	url = https://github.com/zaproxy/zaproxy.git
+	branch = main
+[submodule "nuclei"]
+	path = vendor/nuclei
+	url = https://github.com/projectdiscovery/nuclei.git
+	branch = dev
+[submodule "nuclei-templates"]
+	path = vendor/nuclei-templates
+	url = https://github.com/projectdiscovery/nuclei-templates.git
+	branch = main
+[submodule "httpx"]
+	path = vendor/httpx
+	url = https://github.com/projectdiscovery/httpx.git
+	branch = dev
+[submodule "katana"]
+	path = vendor/katana
+	url = https://github.com/projectdiscovery/katana.git
+	branch = dev
+[submodule "subfinder"]
+	path = vendor/subfinder
+	url = https://github.com/projectdiscovery/subfinder.git
+	branch = dev
+[submodule "ffuf"]
+	path = vendor/ffuf
+	url = https://github.com/ffuf/ffuf.git
+	branch = master
+[submodule "gobuster"]
+	path = vendor/gobuster
+	url = https://github.com/OJ/gobuster.git
+	branch = master
+[submodule "dirsearch"]
+	path = vendor/dirsearch
+	url = https://github.com/maurosoria/dirsearch.git
+	branch = master
+[submodule "arjun"]
+	path = vendor/arjun
+	url = https://github.com/s0md3v/Arjun.git
+	branch = master
+[submodule "retire-js"]
+	path = vendor/retire-js
+	url = https://github.com/RetireJS/retire.js.git
+	branch = master
+[submodule "testssl"]
+	path = vendor/testssl
+	url = https://github.com/testssl/testssl.sh.git
+	branch = 3.3dev
+[submodule "ssllabs-scan"]
+	path = vendor/ssllabs-scan
+	url = https://github.com/ssllabs/ssllabs-scan.git
+	branch = master
+[submodule "nikto"]
+	path = vendor/nikto
+	url = https://github.com/sullo/nikto.git
+	branch = main
+[submodule "schemathesis"]
+	path = vendor/schemathesis
+	url = https://github.com/schemathesis/schemathesis.git
+	branch = master
+[submodule "spectral"]
+	path = vendor/spectral
+	url = https://github.com/stoplightio/spectral.git
+	branch = develop
+[submodule "playwright"]
+	path = vendor/playwright
+	url = https://github.com/microsoft/playwright.git
+	branch = main
+[submodule "lighthouse"]
+	path = vendor/lighthouse
+	url = https://github.com/GoogleChrome/lighthouse.git
+	branch = main
+[submodule "semgrep"]
+	path = vendor/semgrep
+	url = https://github.com/semgrep/semgrep.git
+	branch = develop
+[submodule "gitleaks"]
+	path = vendor/gitleaks
+	url = https://github.com/gitleaks/gitleaks.git
+	branch = master
+[submodule "trivy"]
+	path = vendor/trivy
+	url = https://github.com/aquasecurity/trivy.git
+	branch = main
+[submodule "seclists"]
+	path = vendor/seclists
+	url = https://github.com/danielmiessler/SecLists.git
+	branch = master
+[submodule "assetnote-wordlists"]
+	path = vendor/assetnote-wordlists
+	url = https://github.com/assetnote/wordlists.git
+	branch = master
+[submodule "fuzzdb"]
+	path = vendor/fuzzdb
+	url = https://github.com/fuzzdb-project/fuzzdb.git
+	branch = master
+[submodule "zxcvbn"]
+	path = vendor/zxcvbn
+	url = https://github.com/dropbox/zxcvbn.git
+	branch = master
+[submodule "zxcvbn-ts"]
+	path = vendor/zxcvbn-ts
+	url = https://github.com/zxcvbn-ts/zxcvbn.git
+	branch = master
