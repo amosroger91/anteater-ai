@@ -4,6 +4,7 @@ import { ActionSchema, authorize, PolicySchema, targetForAction } from '../scope
 import { acquireRate, type Job } from '../research-state/jobs.js';
 import { log } from '../shared/log.js';
 import { executePassiveHttp } from '../web-executor/index.js';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 export class ToolGateway {
   constructor(private pool: pg.Pool, private config: () => Config) {}
@@ -29,17 +30,33 @@ export class ToolGateway {
       return { row, policy, target };
     };
     const { row, policy, target } = await validate();
+    const application = job.action === 'research_application';
+    if (application && (!config.ENABLE_APPLICATION_RESEARCH || !policy.application)) throw new Error('application_research_not_enabled');
     const fixture = row.platform === 'fixture' && job.program_id === 'fixture-company' && assetId === 'fixture-api' && row.url === 'https://api.example.test';
-    if (!fixture && !config.ENABLE_PASSIVE_HTTP) throw new Error('live_executor_not_enabled');
+    if (!fixture && !application && !config.ENABLE_PASSIVE_HTTP) throw new Error('live_executor_not_enabled');
     const reserve = async () => {
       signal?.throwIfAborted();
       const current = await validate();
       if (current.target !== target || JSON.stringify(current.policy) !== JSON.stringify(policy)) throw new Error('policy_changed');
       const currentConfig = this.config();
-      if (!fixture && !currentConfig.ENABLE_PASSIVE_HTTP) throw new Error('live_executor_not_enabled');
+      if (application && !currentConfig.ENABLE_APPLICATION_RESEARCH) throw new Error('application_research_not_enabled');
+      if (!fixture && !application && !currentConfig.ENABLE_PASSIVE_HTTP) throw new Error('live_executor_not_enabled');
       if (!await acquireRate(this.pool,job.program_id,current.policy.requestsPerSecond,currentConfig.MAX_REQUEST_RATE)) throw new Error('rate_limited');
       if (this.config().GLOBAL_KILL_SWITCH) throw new Error('kill_switch');
     };
+    if (application) {
+      const { researchApplication } = await import('../application-research/index.js');
+      return researchApplication(new URL(target).origin, policy.application!, config, async requestSignal => {
+        while (true) {
+          requestSignal.throwIfAborted();
+          try { await reserve(); return; }
+          catch (error) {
+            if (!(error instanceof Error) || error.message !== 'rate_limited') throw error;
+            await sleep(100, undefined, { signal: requestSignal });
+          }
+        }
+      }, signal);
+    }
     if (fixture) {
       await reserve();
       log('TOOL_EXECUTED',{program:job.program_id,job:job.id,asset:assetId,result:'fixture'});

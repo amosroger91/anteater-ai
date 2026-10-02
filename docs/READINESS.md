@@ -1,32 +1,31 @@
 # Readiness and remaining work
 
-## Implemented and tested locally
+Anteater is a locally validated prototype. Its default kill switch remains on, and passive collection and application research are separately opt-in. Passing fixture tests establishes expected behavior in the test harness; it does not establish safety, coverage, or finding quality on a live service.
 
-- [x] Default kill switch, strict configuration, mandatory reviewed policy and scope.
-- [x] Exact/wildcard hosts, exclusion precedence, expiry, exact-path allowlists and rejected ambiguous target forms.
-- [x] Fixture provider plus bounded reviewed JSON manifests with identifier/scope validation.
-- [x] Typed gateway actions: root, robots, sitemap and fixed OpenAPI path.
-- [x] Separately enabled passive HTTPS executor: one pinned address, certificate validation, no redirects, total deadline, byte/header caps and cancellation.
-- [x] PostgreSQL leases, fencing, retries, policy revisions, heartbeat and shared rate reservations.
-- [x] Concurrent worker batches, signal handling and persistent outbox sweep.
-- [x] Atomic observation persistence, hash metadata, observation-level findings, audit events and policy-filtered follow-ups.
-- [x] Valid bounded model features, schema-constrained classification, grounded evidence and one repair attempt.
-- [x] Replayable Markdown exports including hypotheses and audit events.
-- [x] 29 pinned source dependencies and configured update PRs.
+## Implemented and locally validated
 
-## Before production operation
+- Strict configuration, reviewed host/action/path policy, exclusions, expiry, DNS-pinned HTTPS collection, request/response bounds, cancellation, and invocation-time scope checks.
+- PostgreSQL jobs with leases, fencing, recovery, retries, rate reservations, atomic observations, and workspace exports.
+- Domain-list intake for submitted roots and a `research` worker path gated by both policy and `ENABLE_APPLICATION_RESEARCH`.
+- Playwright exploration with same-origin routing, isolated contexts, challenge reporting, up to two configured test accounts, optional encrypted generated accounts, and an IMAP adapter.
+- Configured owner-resource access replay with owner/cross-account/repeat/negative controls. Every resource probe now requires a marker-based cleanup path and attempts deletion after every create attempt.
+- Candidate discovery/admission libraries, Subfinder/CT/passive-DNS/Gitleaks adapters, methodology registry, web/API checks, finding/retest helpers, offline infrastructure analyzers, evidence utilities, and operations decision logic.
+- 29 commit-pinned upstream source/data dependencies. Imported repositories are not executed just because they are pinned.
 
-- [ ] Source ingestion with terms/access review, authenticated policy approvals and source hashes.
-- [ ] Public-suffix rules, broader path/port/IDN semantics and independently reviewed address/egress controls.
-- [ ] Authenticated MCP transport, executor isolation and sandbox lifecycle.
-- [ ] Immediate fleet-wide kill/revocation propagation; environment switches are process-local.
-- [ ] Manifest hot reload, periodic revisit scheduling, retry jitter and dead-letter operator controls.
-- [ ] Durable analysis recovery after a crash between observation completion and model persistence.
-- [ ] Least-privilege audit roles, tamper resistance, evidence retention/redaction policy and full replay artifacts where needed.
-- [ ] Finding transitions and identity-backed human verification/submission.
-- [ ] Verify installed model digest, adversarial evaluation corpus, local benchmarks and fleet model concurrency limits.
-- [ ] Production backup/restore and crash/reboot testing, monitoring, health checks and operator UI.
-- [ ] Review upstream licenses and test each packaged runtime adapter.
-- [ ] Independent live adapter/isolation QA on an owned test environment.
+Local verification after the marker-cleanup edit: TypeScript build and 127 unit tests pass. Before that edit, 3 browser tests and 14 PostgreSQL integration tests passed, and all 29 dependency pins verified. The browser suite was not rerun after the edit; the new malformed-create-response cleanup test remains unverified. Browser tests use real Chromium against an injected synthetic HTTP transport and mocked mailbox. No research target, real account, or external mailbox was used.
 
-The fixture remains the default. `ENABLE_PASSIVE_HTTP=true` enables only the bounded read-only worker adapter after policy authorization. `ALLOW_ACTIVE_TESTING` does not enable that adapter or grant additional tools. No live research target was contacted during local verification. A 10x effectiveness improvement has not been measured; throughput is still constrained by reviewed request rates.
+## Required before production operation
+
+- [ ] Add authenticated policy approvals and verify approver, source hash, revision, and expiry in the live campaign loader. The current `reviewed: true` profile field is operator input, not proof of approval.
+- [ ] Connect discovery adapters to the worker and persist candidate history. Keep discovered names held until the exact host and action pass the current policy.
+- [ ] Enforce outbound restrictions outside Playwright routing. Independently test DNS rebinding, redirects, subresources, frames, workers, WebSockets, and browser escape paths in an isolated environment.
+- [ ] Run against an owned vulnerable/patched staging app and real test mailbox; prove identity, isolation, marker cleanup, cleanup after timeout/crash, and safe behavior under mailbox and network failures.
+- [ ] Add role-aware secrets and support at least two ordinary users plus an explicitly supplied least-privilege administrator. The current browser profile supports at most two accounts and does not label roles.
+- [ ] Connect browser/API inventory, budgets, approved tool adapters, and methodology checks into one persistent campaign. The current worker processes submitted roots only; most detector packages are not live worker stages.
+- [ ] Align the 13 WSTG 4.2 / ASVS 4.0.3 references, licenses, and source revisions with the vendored methodology versions; expand coverage and show every gap.
+- [ ] Integrate complete finding states, encrypted/redacted evidence lifecycle, human reviewer identity, impact ranking, report editing, and retest jobs.
+- [ ] Wire fleet-wide kill/revocation, operational metrics/alerts, dead-letter controls, least-privilege DB roles, retention jobs, backup/restore, and crash/reboot drills.
+- [ ] Verify real model weights and inference if enabled; establish a task-specific evaluation set and bounded fleet concurrency.
+- [ ] Review licenses and independently assess authorization, egress, sandboxing, secrets, data retention, and operational access.
+
+The project has not measured a 10x improvement in throughput or finding yield. Its safe request budgets intentionally constrain speed. Read [PRODUCTION_ROADMAP.md](PRODUCTION_ROADMAP.md) for the ordered completion plan and [VALIDATION.md](VALIDATION.md) for test boundaries.

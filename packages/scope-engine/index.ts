@@ -1,9 +1,10 @@
 import { z } from 'zod';
 import type { Config } from '../shared/config.js';
+import { ApplicationSchema } from '../application-research/profile.js';
 
 const domain = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const pattern = z.string().max(253).refine(s => domain.test(s.startsWith('*.') ? s.slice(2) : s) && !s.includes('xn--'));
-export const SAFE_ACTIONS = ['inspect_http_target', 'inspect_robots', 'inspect_sitemap', 'inspect_openapi'] as const;
+export const SAFE_ACTIONS = ['inspect_http_target', 'inspect_robots', 'inspect_sitemap', 'inspect_openapi', 'research_application'] as const;
 export const ActionSchema = z.enum(SAFE_ACTIONS);
 export type Action = typeof SAFE_ACTIONS[number];
 const path = z.string().regex(/^\/[A-Za-z0-9._~/-]*$/).max(512).refine(value => !value.includes('//') && !value.split('/').some(part => part === '.' || part === '..'));
@@ -20,6 +21,7 @@ export const PolicySchema = z.object({
   schemes: z.array(z.enum(['https'])).min(1),
   ports: z.array(z.literal(443)).min(1),
   requestsPerSecond: z.number().positive().max(10),
+  application: ApplicationSchema.optional(),
 }).strict();
 export type Policy = z.infer<typeof PolicySchema>;
 export type Decision = { allowed: boolean; reason: string };
@@ -56,6 +58,7 @@ const ACTION_PATHS: Record<Action, string> = {
   inspect_robots: '/robots.txt',
   inspect_sitemap: '/sitemap.xml',
   inspect_openapi: '/.well-known/openapi.json',
+  research_application: '/',
 };
 
 export function targetForAction(assetUrl: string, action: Action): string {

@@ -31,3 +31,10 @@ Ollama inference and real MCP execution were not exercised. The demo and continu
 - No 10x throughput or finding-yield claim has been measured. Request-rate limits remain authoritative.
 
 The earlier fixture-only descriptions above describe the earlier milestone. The opt-in passive collector is now implemented; production limitations remain in READINESS.md.
+
+## Current working-tree update — 2026-10-02
+
+- After the marker-based cleanup change, `npm run check` passed the TypeScript build and 127 unit tests.
+- Before that change, 3 Chromium browser tests passed against the injected synthetic application transport; 14 PostgreSQL integration tests, fixture replay, and the 29-pin dependency check also passed.
+- The browser suite was not rerun after the cleanup change at the operator's direction. A regression test for a successful create response with a missing resource ID was added; it remains unverified.
+- No live target, real login, or external mailbox was tested. No claim about production egress isolation or live cleanup is supported by these fixtures.

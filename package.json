@@ -13,6 +13,8 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "demo": "tsx apps/orchestrator/demo.ts",
     "worker": "tsx apps/orchestrator/worker.ts",
+    "research": "tsx apps/orchestrator/worker.ts --research",
+    "test:browser": "tsx --test tests/browser/*.test.ts",
     "models:inspect": "tsx scripts/models.ts",
     "models:setup": "tsx scripts/model-setup.ts",
     "models:advise": "tsx scripts/model-setup.ts advise",
@@ -20,6 +22,10 @@
     "ollama:pull": "tsx scripts/model-setup.ts pull",
     "posture:check": "tsx scripts/posture-check.ts",
     "posture:scan": "tsx scripts/posture-scan.ts",
+    "coverage:report": "tsx scripts/coverage.ts",
+    "gate": "tsx scripts/gate.ts",
+    "campaign": "tsx scripts/campaign.ts",
+    "retention:sweep": "tsx scripts/retention-sweep.ts",
     "bounty:fetch": "tsx scripts/bounty-inbox.ts fetch",
     "bounty:refresh": "tsx scripts/bounty-inbox.ts refresh",
     "bounty:review": "tsx scripts/bounty-inbox.ts review",
@@ -32,7 +38,10 @@
     "deps:sync": "tsx scripts/dependencies.ts sync"
   },
   "dependencies": {
+    "imapflow": "2.2.1",
     "pg": "^8.16.3",
+    "playwright": "1.63.0",
+    "postal-mime": "4.0.2",
     "zod": "^4.1.12"
   },
   "devDependencies": {

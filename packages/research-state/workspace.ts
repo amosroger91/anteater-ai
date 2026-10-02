@@ -61,6 +61,7 @@ export async function exportWorkspace(pool: pg.Pool, root: string, programId: st
       'SCOPE.md': '# Scope\n\nAuthoritative only in the database; export is for review.\n\n' + block(policy),
       'ASSETS.md': '# Assets\n\n' + block(assets),
       'RECON.md': '# Observations\n\nObservations are not confirmed vulnerabilities.\n\n' + block(observations),
+      'COVERAGE.md': '# Application coverage\n\nUnavailable authentication and skipped checks are coverage gaps, not passing tests.\n\n' + block(observations.filter(row => row.body.executor === 'application-browser').map(row => ({ observationId: row.id, target: row.body.target, coverage: row.body.coverage }))),
       'FINDINGS.md': '# Findings\n\nStates: OBSERVATION, HYPOTHESIS, CANDIDATE, VERIFICATION, VERIFIED, HUMAN_REVIEW, REJECTED, SUBMITTED.\n\n' + block(findings),
       'HYPOTHESES.md': '# Accepted model hypotheses\n\nUnverified suggestions; human_review is an operator triage hint.\n\n' + block(hypotheses),
       'AUDIT.md': '# Execution events\n\n' + block(audit),

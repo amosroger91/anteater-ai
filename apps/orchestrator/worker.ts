@@ -8,6 +8,7 @@ import { ToolGateway } from '../../packages/mcp/index.js';
 import { FileProgramProvider, FixtureProvider } from '../../packages/bounty-providers/index.js';
 import { FixtureLLM, OllamaProvider, type LLMProvider } from '../../packages/llm/index.js';
 import { analyzeObservation, analysisPromptHash, boundedObservation } from '../../packages/agent-runtime/index.js';
+import { loadCampaign } from '../../packages/application-research/intake.js';
 
 const config = loadConfig();
 const pool = connect(config.DATABASE_URL);
@@ -64,7 +65,13 @@ try {
   if (config.PROGRAM_SOURCE === 'file' && !config.PROGRAMS_FILE) throw new Error('programs_file_required');
   await migrate(pool);
   const provider = config.PROGRAM_SOURCE === 'file' ? new FileProgramProvider(config.PROGRAMS_FILE!) : new FixtureProvider();
-  const programs = await provider.discover();
+  const args = process.argv.slice(2);
+  const domainsFile = args.find(arg => arg.startsWith('--domains='))?.slice(10);
+  const profileFile = args.find(arg => arg.startsWith('--profile='))?.slice(10);
+  const research = args.includes('--research') || domainsFile || profileFile;
+  if (research && (!domainsFile || !profileFile)) throw new Error('domains_and_profile_required');
+  if (research && !config.ENABLE_APPLICATION_RESEARCH) throw new Error('application_research_not_enabled');
+  const programs = research ? await loadCampaign(domainsFile!, profileFile!) : await provider.discover();
   const jobs = new Jobs(pool, config.MAX_CONCURRENT_JOBS, config.JOB_LEASE_SECONDS);
   const gateway = new ToolGateway(pool, loadConfig);
   const llm = config.LLM_PROVIDER === 'ollama'
@@ -72,7 +79,7 @@ try {
     : new FixtureLLM();
   for (const program of programs) {
     await saveProgram(pool, program);
-    for (const asset of program.assets) await jobs.enqueue(program.id, asset.id, 'inspect_http_target');
+    for (const asset of program.assets) await jobs.enqueue(program.id, asset.id, research ? 'research_application' : 'inspect_http_target');
   }
   const once = process.argv.includes('--once');
   do {

@@ -89,17 +89,18 @@ Use a normal clone followed by `deps:sync`; recursive submodule cloning can down
 
 ## Current implementation and next steps
 
-| Available now | Still to implement |
+| In the current checkout | Still needed for production |
 | --- | --- |
-| Reviewed manifest intake, exact-path policy and DNS-pinned passive HTTPS collection | Authenticated approvals, independent egress enforcement and broader scope semantics |
-| Concurrent leased jobs, heartbeat cancellation, rate reservations and atomic follow-ups | Periodic revisits, manifest hot reload and operational monitoring |
-| Tool observations, capture hashes, audit events, finding signals and replayable exports | Full evidence retention, authenticated verification and finding transitions |
-| Bounded features, schema-constrained Ollama, grounded evidence and deterministic fixture model | Model digest verification, evaluation corpus, crash recovery and health monitoring |
-| 29 pinned source/data dependencies and update PRs | Reviewed runtime adapters, authenticated MCP and enforced sandbox egress |
+| Reviewed domain-list profile, root-job worker, bounded passive HTTPS collector and PostgreSQL leases | Authenticated policy approval, discovery-to-queue wiring, independent egress enforcement and scheduled revisits |
+| Opt-in Playwright research with two isolated accounts, identity checks, optional encrypted generated accounts and IMAP verification | Real owned-staging validation, role-aware credential service, account lifecycle, and verified browser/network isolation |
+| Configured owner-resource replay with negative controls and marker-based cleanup | Broader route/role coverage, live cleanup proof, persistent reviewer decisions and scheduled retests |
+| Eight passive posture coverage checks, a 13-reference WSTG/ASVS registry, fixture gates, API inventory and offline analyzers | Broader methodology coverage and integration of checks/inventory into the live campaign |
+| Deterministic finding/retest helpers, remediation text, evidence hashes and audit data | End-to-end finding lifecycle, evidence key management, human identity and impact-ranked reports |
+| 29 pinned source/data dependencies and update checks | Reviewed runtime tool adapters, authenticated MCP, operational monitoring and recovery drills |
 
-The checked-in Kali container is an inert, network-disabled boundary demonstration. `ENABLE_PASSIVE_HTTP=true` enables only the reviewed read-only worker adapter; `ALLOW_ACTIVE_TESTING` grants no additional tools. Findings submission remains a human-reviewed future stage.
+The checked-in Kali container is an inert, network-disabled boundary demonstration. `ENABLE_PASSIVE_HTTP=true` enables only the reviewed read-only worker adapter. Application research additionally requires `ENABLE_APPLICATION_RESEARCH=true`; login, signup, resource creation and replay require `ALLOW_ACTIVE_TESTING=true` plus explicit profile paths. These switches do not replace host/container egress isolation. Findings submission remains a human-reviewed future stage.
 
-The execution-depth update passed the TypeScript build, **71 unit tests**, **14 reported PostgreSQL integration tests**, and fixture replay checks. The registry check verified all 29 pinned source dependencies. See [validation details](docs/VALIDATION.md) and [operating instructions](docs/OPERATIONS.md). No research target was contacted. Native PostgreSQL provided the local integration-test path; local Docker runtime and real model inference remain unverified.
+The latest post-change check passed the TypeScript build and **127 unit tests**. Before the latest marker-cleanup change, **3 browser tests** and **14 PostgreSQL integration tests** passed, and the registry check verified all 29 pinned dependencies. The browser suite was not rerun after that change; its new malformed-create-response cleanup case remains unverified. Browser tests use real Chromium with an injected synthetic application transport and mailbox; no research target, real login, or real mailbox was tested. See [validation details](docs/VALIDATION.md), the [production roadmap](docs/PRODUCTION_ROADMAP.md), and [readiness gates](docs/READINESS.md). Native PostgreSQL provided the local integration-test path; local Docker runtime and real model inference remain unverified.
 
 ## Quick start
 
@@ -137,6 +138,9 @@ Without Docker, `npm run verify:local` starts temporary PostgreSQL, runs integra
 | REQUIRE_PROGRAM_POLICY | No | Must remain `true` |
 | ALLOW_ACTIVE_TESTING | No | `false`; grants no additional worker tools |
 | ENABLE_PASSIVE_HTTP | No | `false`; explicit opt-in for reviewed HTTPS collection |
+| ENABLE_APPLICATION_RESEARCH | No | `false`; explicit opt-in for bounded browser research |
+| CREDENTIAL_STORE | No | `secrets/accounts`; encrypted generated-account storage directory |
+| ACCOUNT_KEY | No | Unset; 32-byte hex key required only for generated test accounts |
 | PROGRAM_SOURCE | No | `fixture`; set `file` for reviewed manifests |
 | PROGRAMS_FILE | File provider | Path to reviewed JSON; see `fixtures/programs.example.json` |
 | MAX_RESPONSE_BYTES | No | `65536`; capture limit, bounded 1024–1048576 |
@@ -159,6 +163,8 @@ Without Docker, `npm run verify:local` starts temporary PostgreSQL, runs integra
 | `npm run db:migrate` | Apply ordered, idempotent schema migrations |
 | `npm run demo` | One bounded fixture iteration; explicit kill-switch override required |
 | `npm run worker -- --once` | Seed reviewed root jobs and process one bounded batch with lease heartbeats |
+| `npm run research -- --domains=<file> --profile=<file>` | Queue the submitted domains using a reviewed research profile; application research must be explicitly enabled |
+| `npm run test:browser` | Chromium integration tests against the synthetic research lab |
 | `npm run models:inspect` | Detect NVIDIA VRAM and display conservative setup guidance |
 | `npm run deps:list` | List web dependencies and committed revisions |
 | `npm run deps:check` | Verify catalog, origins, branches and gitlinks |
@@ -171,12 +177,16 @@ Without Docker, `npm run verify:local` starts temporary PostgreSQL, runs integra
 | `npm run posture:scan -- <csv> --policy=<json>` | Policy-bound posture scan; one URL per row |
 | `npm run posture:check -- <url>` | Read-only check of one host, outside the CSV |
 
-Without `--once`, the worker drains follow-ups/retries and sweeps pending exports until stopped. It loads manifests once at startup. Completed targets are not periodically rescanned; new reviewed revisions produce new jobs. See [reviewed manifest setup](docs/OPERATIONS.md#reviewed-program-worker). Authenticated HTTP/MCP control remains future work.
+Without `--once`, the worker drains follow-ups/retries and sweeps pending exports until stopped. It loads manifests once at startup. Completed targets are not periodically rescanned; new reviewed revisions produce new jobs. The `research` entry point scans only submitted roots; discovery adapters are not yet wired into it. A profile's `reviewed: true` field is operator input, not authenticated proof of approval. See [reviewed manifest setup](docs/OPERATIONS.md#reviewed-program-worker). Authenticated HTTP/MCP control remains future work.
 
 ## Project structure
 
 ```text
 apps/orchestrator/       fixture demo and concurrent worker
+packages/application-research/ bounded browser sessions, accounts, mailbox and ownership replay
+packages/discovery/     candidate discovery, scope admission and adapters
+packages/coverage/      WSTG/ASVS check registry and coverage reports
+packages/findings/      replay contracts, finding states, chains and retest helper
 packages/scope-engine/  conservative deterministic authorization
 packages/research-state/ PostgreSQL jobs, leases, rate limits, Markdown outbox
 packages/bounty-providers/ fixture and reviewed manifest providers

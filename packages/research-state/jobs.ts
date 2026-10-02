@@ -87,6 +87,16 @@ export class Jobs {
       for (const signal of signals) {
         await c.query(`INSERT INTO findings(id,program_id,status,body) VALUES($1,$2,'OBSERVATION',$3)`, [randomUUID(), job.program_id, JSON.stringify({ jobId: job.id, observationId, signal })]);
       }
+      if (value.executor === 'application-browser' && Array.isArray(value.findings)) for (const item of value.findings) {
+        const finding = item as { verifier?: string; code?: string; evidence?: unknown[] };
+        if (finding.verifier !== 'owner-boundary-v1' || finding.code !== 'cross_account_resource_read' || !Array.isArray(finding.evidence)) continue;
+        const findingId = randomUUID();
+        await c.query(`INSERT INTO findings(id,program_id,status,body,verified_by) VALUES($1,$2,'HUMAN_REVIEW',$3,'owner-boundary-v1')`, [findingId, job.program_id, JSON.stringify({ observationId, jobId: job.id, ...finding })]);
+        for (const rawEvidence of finding.evidence) {
+          const evidence = rawEvidence as { sha256?: string };
+          if (typeof evidence.sha256 === 'string' && /^[a-f0-9]{64}$/.test(evidence.sha256)) await c.query('INSERT INTO evidence(id,finding_id,sha256,body) VALUES($1,$2,$3,$4)', [randomUUID(), findingId, evidence.sha256, JSON.stringify(rawEvidence)]);
+        }
+      }
       await c.query(`INSERT INTO audit_events(id,event,program_id,job_id,asset_id,metadata) VALUES($1,'OBSERVATION_RECORDED',$2,$3,$4,$5)`, [randomUUID(), job.program_id, job.id, job.asset_id, JSON.stringify({ action: job.action, observationId })]);
       for (const action of followUpActions(job.action, observation)) await this.enqueueOn(c, job.program_id, job.asset_id, action, undefined, job.policy_revision);
       await c.query(`INSERT INTO workspace_outbox(program_id) VALUES($1) ON CONFLICT(program_id) DO UPDATE SET revision=workspace_outbox.revision+1`, [job.program_id]);
