@@ -323,7 +323,7 @@
         "/Discovery/Web-Content/raft-small-files.txt",
         "/Discovery/Web-Content/raft-small-words.txt",
         "/Passwords/Common-Credentials/10k-most-common.txt",
-        "/Passwords/Common-Credentials/10-million-password-list-top-10000.txt"
+        "/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt"
       ],
       "execution": "disabled"
     },
