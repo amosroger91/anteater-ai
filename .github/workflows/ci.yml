@@ -17,7 +17,7 @@ jobs:
           --health-cmd "pg_isready -U anteater -d anteater"
           --health-interval 3s --health-timeout 3s --health-retries 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: false
           persist-credentials: false
