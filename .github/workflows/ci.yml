@@ -18,12 +18,16 @@ jobs:
           --health-interval 3s --health-timeout 3s --health-retries 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run check
+      - run: npm run deps:check
       - run: npm run test:integration
       - run: npm run demo
         env:

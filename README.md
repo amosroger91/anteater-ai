@@ -1,6 +1,6 @@
 # anteater-ai
 
-A persistent, scope-first foundation for authorized bug-bounty research with local AI.
+A web-development-focused, scope-first foundation for authorized web and API security research with local AI.
 
 ## Overview
 
@@ -19,6 +19,12 @@ Fixture provider -> validated policy + PostgreSQL -> leased job
 ```
 
 See [architecture](docs/ARCHITECTURE.md), [research decisions](docs/RESEARCH.md), and [readiness checklist](docs/READINESS.md).
+
+## Web dependency library
+
+The [dependency catalog](dependencies/README.md) contains **29 commit-pinned upstream repositories**: OWASP guidance, ZAP, Nuclei, HTTP discovery tools, API testing, Playwright, Lighthouse, static analysis, web wordlists, and password-strength libraries. Daily Dependabot checks propose parent-repository updates as reviewable PRs.
+
+Run `npm run deps:sync` to fetch curated source/data checkouts, or `npm run deps:sync -- seclists zxcvbn-ts` to fetch selected dependencies. Sources live under `vendor/`; they are not automatically installed or executed. Common-password lists support offline web password-policy testing. Live network adapters remain disabled pending the readiness checklist.
 
 ## Quick start
 
@@ -72,6 +78,9 @@ Without Docker, `npm run verify:local` starts temporary PostgreSQL, runs integra
 | `npm run db:migrate` | Apply idempotent initial schema |
 | `npm run demo` | One bounded fixture iteration; explicit kill-switch override required |
 | `npm run models:inspect` | Detect NVIDIA VRAM and display conservative setup guidance |
+| `npm run deps:list` | List web dependencies and committed revisions |
+| `npm run deps:check` | Verify catalog, origins, branches and gitlinks |
+| `npm run deps:sync` | Fetch pinned source and selected data without executing it |
 
 There is no HTTP API or continuously running daemon yet.
 
@@ -87,6 +96,8 @@ packages/agent-runtime/ structured observation analysis boundary
 packages/mcp/           authorization gateway; no live MCP transport yet
 packages/shared/        strict configuration and structured event logging
 infrastructure/        PostgreSQL schema and disabled Kali container boundary
+dependencies/          curated web dependency catalog and update policy
+vendor/                pinned Git submodules, populated by deps:sync
 fixtures/              synthetic .test program
 tests/                 scope, configuration, models, persistence and recovery
 programs/              generated research workspaces (ignored)

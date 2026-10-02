@@ -5,6 +5,8 @@
 - [x] Fixture-only typed tool gate; arbitrary commands and unknown assets rejected.
 - [x] PostgreSQL leases, fencing, deduplication, bounded retries and rate reservations.
 - [x] Database-backed program state and replayable Markdown export.
+- [x] Pinned web-focused upstream source catalog with daily Dependabot update configuration.
+- [ ] Review licenses and package tested releases for each selected runtime adapter; importing source does not approve execution.
 - [ ] Real source adapter with policy provenance, terms/access review and policy-change handling.
 - [ ] Operator-reviewed policy compiler, source hashes and authenticated approval records.
 - [ ] Complete scope semantics: public suffixes, paths, ports, IDNs and explicit exclusions.

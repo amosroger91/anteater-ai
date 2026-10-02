@@ -14,7 +14,10 @@
     "demo": "tsx apps/orchestrator/demo.ts",
     "models:inspect": "tsx scripts/models.ts",
     "check": "npm run build && npm test",
-    "verify:local": "tsx scripts/verify-local.ts"
+    "verify:local": "tsx scripts/verify-local.ts",
+    "deps:list": "tsx scripts/dependencies.ts list",
+    "deps:check": "tsx scripts/dependencies.ts check",
+    "deps:sync": "tsx scripts/dependencies.ts sync"
   },
   "dependencies": {
     "pg": "^8.16.3",
