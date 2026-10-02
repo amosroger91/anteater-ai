@@ -1,0 +1,28 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: anteater
+      POSTGRES_PASSWORD: local-fixture-only
+      POSTGRES_DB: anteater
+    ports: ["127.0.0.1:55432:5432"]
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U anteater -d anteater"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  kali-boundary:
+    profiles: ["kali-boundary"]
+    build: ./infrastructure/kali
+    network_mode: none
+    read_only: true
+    user: "65534:65534"
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 32
+    mem_limit: 128m
+    cpus: 0.5
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+volumes:
+  postgres-data:
