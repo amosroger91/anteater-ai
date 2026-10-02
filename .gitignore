@@ -12,3 +12,6 @@ programs/*
 !programs/.gitkeep
 *.log
 .DS_Store
+posture-results/
+targets.csv
+bounty-inbox.json

@@ -2,7 +2,7 @@
 
 ## PostgreSQL
 
-`docker compose up -d --wait postgres` exposes PostgreSQL only on loopback port 55432. The named volume survives container restarts. `npm run db:migrate` applies the initial schema transactionally and can be repeated. Future schema changes must introduce versioned migrations rather than editing a deployed schema in place. Integration tests create and remove a randomly named schema and do not truncate existing research tables.
+`docker compose up -d --wait postgres` exposes PostgreSQL only on loopback port 55432. The named volume survives container restarts. `npm run db:migrate` applies ordered migrations transactionally and can be repeated. Never edit an applied migration; add the next numbered file. Integration tests create and remove a randomly named schema and do not truncate existing research tables.
 
 `npm run verify:local` is a Docker-independent verification path using temporary native PostgreSQL. It is a development aid, not a service or deployment architecture. The runner binds loopback, uses a random password, stops its server in `finally`, and leaves ordinary generated Markdown available for inspection.
 
@@ -14,7 +14,21 @@
 
 ## Models
 
-Install Ollama using its official installer, then run `npm run models:inspect`. NVIDIA detection uses only `nvidia-smi`; AMD/Intel systems report unavailable detection and can use CPU fallback. Run `ollama pull qwen3:4b` explicitly if desired. Configure `LLM_MODEL` and loopback `OLLAMA_URL`, then instantiate `OllamaProvider` with them when building a worker. The demo deliberately uses `FixtureLLM`, so no downloaded model is needed. `ModelRegistry` supports a separate provider per role; runtime registry loading and health monitoring remain future work.
+Install Ollama through a verified package-manager installation, then run `npm run models:inspect`. NVIDIA detection uses only `nvidia-smi`; AMD/Intel systems report unavailable detection and can use CPU fallback. Pull a model explicitly, record its `sha256` in `models.lock.json`, and set `OLLAMA_MODEL_DIGEST` before constructing `OllamaProvider`. The provider rejects unpinned model configuration, enforces the JSON schema, disables thinking, and fails closed on truncation. The demo deliberately uses `FixtureLLM`, so no downloaded model is needed.
+
+## Posture CSV
+
+`npm run posture:scan -- targets.csv --policy=reviewed-policy.json` reads `url,mode,notes`. The reviewed policy is required for every row and is checked with the same scope engine as queued jobs. A bare hostname is requested as `https://that-host/` and the runner does not add subdomains, ports, or paths. Passive mode is one pinned GET after one TLS handshake, following at most three same-host, same-port redirects. It records the note on the result. Loopback and link-local addresses are refused. Private addresses need `--allow-private`.
+
+`latest.json` stores executed targets only. A held aggressive row is written to the timestamped scan file and does not replace the previous baseline. Diffs report new codes, resolved codes, and a severity or detail change on an existing code.
+
+Aggressive mode also runs local `nuclei` only with `--confirm-aggressive --egress-proxy=http://127.0.0.1:8080`, `NUCLEI_BIN` set to an absolute executable, `NUCLEI_TEMPLATES` set to an absolute local template directory, and `NUCLEI_TEMPLATE_DIGEST` set to the reviewed template commit. The fixed tags are `ssl,misconfig,exposure,tech`; intrusive tags can never be enabled. Nuclei is not started if the pinned passive check cannot reach the target. Results are retained for 30 days by default and written with restrictive file permissions.
+
+## Bounty review inbox
+
+Public platform APIs do not hand out an anonymous, complete scope list. `npm run bounty:fetch -- <platform> <handle>` reads one named program from the public `arkadiyt/bounty-targets-data` dump (HackerOne, Bugcrowd, Intigriti, YesWeHack, or Federacy) and stores it in `bounty-inbox.json`. In-scope assets and exclusions stay side by side. Wildcards are not expanded. The inbox is JSON, and `posture:scan` rejects it because that file has no `url` column.
+
+`npm run bounty:review -- <platform> <handle> <asset>` marks one exact promotable host. Out-of-scope assets, wildcards, and path-scoped URLs cannot be marked. `npm run bounty:promote` appends only reviewed hosts to `targets.csv` as `passive` rows and leaves existing rows alone. `npm run bounty:refresh` updates programs already in the inbox and does not add the rest of a dump or edit the scan CSV. A scheduled run belongs on `bounty:refresh` only, for handles an operator has already fetched. The inbox holds at most 25 programs.
 
 ## Production posture
 

@@ -20,6 +20,35 @@ Fixture provider -> validated policy + PostgreSQL -> leased job
 
 See [architecture](docs/ARCHITECTURE.md), [research decisions](docs/RESEARCH.md), and [readiness checklist](docs/READINESS.md).
 
+## Bounty review inbox
+
+Public bug-bounty platforms do not offer an anonymous API that returns domains together with the rules for testing them. The free source is the public scope dump at `arkadiyt/bounty-targets-data` (HackerOne, Bugcrowd, Intigriti, YesWeHack, and Federacy). A listed host is not permission to scan it. The inbox stores one named program at a time, with exclusions beside the in-scope assets, and the posture scanner cannot read that file.
+
+```text
+bounty:fetch one handle -> bounty-inbox.json
+        |                     (JSON, no url column)
+        v
+bounty:review one exact host
+        |
+        v
+bounty:promote -> targets.csv as passive only
+        |
+        v
+posture:scan
+```
+
+| Command | What it does |
+| --- | --- |
+| `npm run bounty:fetch -- hackerone <handle>` | Store one program from the public dump. Also accepts `bugcrowd`, `intigriti`, `yeswehack`, and `federacy`. The inbox holds at most 25 programs. |
+| `npm run bounty:list` | Show each asset as excluded, held, unreviewed, or reviewed. Wildcards and path-scoped URLs stay held. |
+| `npm run bounty:review -- hackerone <handle> api.example.com` | Mark one exact in-scope host. Add `--revoke` to clear it. Exclusions, wildcards, and path-only URLs are rejected. |
+| `npm run bounty:promote` | Append reviewed hosts to `targets.csv` as `passive` rows. Existing rows are left alone. |
+| `npm run bounty:refresh` | Update programs already in the inbox. A host that leaves scope loses its review. The rest of the dump is ignored, and `targets.csv` is not edited. |
+
+`npm run posture:scan` reads `url,mode,notes`. Each row is one URL. A bare hostname is checked as `https://that-host/` only. Passive mode is one pinned GET after one TLS handshake, with at most three same-host redirects. Loopback and link-local addresses are refused. Private addresses need `--allow-private`. Aggressive rows run only with `--confirm-aggressive`. See [operating instructions](docs/OPERATIONS.md).
+
+Schedule `bounty:refresh` only after the handles you care about are already in the inbox. Do not point that job at `posture:scan`.
+
 ## Web dependency library
 
 The [dependency catalog](dependencies/README.md) contains **29 commit-pinned upstream repositories**: OWASP guidance, ZAP, Nuclei, HTTP discovery tools, API testing, Playwright, Lighthouse, static analysis, web wordlists, and password-strength libraries. Daily Dependabot checks propose parent-repository updates as reviewable PRs.
@@ -127,6 +156,13 @@ Without Docker, `npm run verify:local` starts temporary PostgreSQL, runs integra
 | `npm run deps:list` | List web dependencies and committed revisions |
 | `npm run deps:check` | Verify catalog, origins, branches and gitlinks |
 | `npm run deps:sync` | Fetch pinned source and selected data without executing it |
+| `npm run bounty:fetch -- <platform> <handle>` | Store one public program in `bounty-inbox.json` |
+| `npm run bounty:review -- <platform> <handle> <asset>` | Mark one exact host reviewed |
+| `npm run bounty:promote` | Copy reviewed hosts into `targets.csv` as passive rows |
+| `npm run bounty:refresh` | Refresh inbox programs already fetched; does not edit the scan CSV |
+| `npm run bounty:list` | Show inbox assets and their review state |
+| `npm run posture:scan` | Check URLs in `targets.csv`; one URL per row |
+| `npm run posture:check -- <url>` | Read-only check of one host, outside the CSV |
 
 There is no HTTP API or continuously running daemon yet.
 
@@ -137,6 +173,8 @@ apps/orchestrator/       bounded fixture demonstration
 packages/scope-engine/  conservative deterministic authorization
 packages/research-state/ PostgreSQL jobs, leases, rate limits, Markdown outbox
 packages/bounty-providers/ discovery interface and fixture provider
+scripts/bounty-inbox.ts  one-program review queue; does not feed the scanner directly
+scripts/posture-scan.ts  CSV posture runner for operator-listed URLs
 packages/llm/           local provider interface, Ollama adapter, fixture model
 packages/agent-runtime/ structured observation analysis boundary
 packages/mcp/           authorization gateway; no live MCP transport yet
