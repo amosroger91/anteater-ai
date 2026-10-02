@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { loadConfig } from '../../packages/shared/config.js';
 import { log } from '../../packages/shared/log.js';
 import { connect, migrate } from '../../packages/research-state/db.js';
@@ -7,7 +6,7 @@ import { Jobs } from '../../packages/research-state/jobs.js';
 import { ToolGateway } from '../../packages/mcp/index.js';
 import { FixtureProvider } from '../../packages/bounty-providers/index.js';
 import { FixtureLLM } from '../../packages/llm/index.js';
-import { analyzeObservation } from '../../packages/agent-runtime/index.js';
+import { analyzeObservation, analysisPromptHash, boundedObservation } from '../../packages/agent-runtime/index.js';
 
 const config = loadConfig();
 const pool = connect(config.DATABASE_URL);
@@ -17,26 +16,45 @@ try {
   const provider = new FixtureProvider();
   const programs = await provider.discover();
   for (const program of programs) {
-    await saveProgram(pool,program);
-    log('PROGRAM_DISCOVERED',{program:program.id,result:'fixture'});
-    const jobs = new Jobs(pool,config.MAX_CONCURRENT_JOBS,config.JOB_LEASE_SECONDS);
-    await jobs.enqueue(program.id,'fixture-api','inspect_http_target','fixture-v1:inspect');
+    await saveProgram(pool, program);
+    log('PROGRAM_DISCOVERED', { program: program.id, result: 'fixture' });
+    const jobs = new Jobs(pool, config.MAX_CONCURRENT_JOBS, config.JOB_LEASE_SECONDS);
+    await jobs.enqueue(program.id, 'fixture-api', 'inspect_http_target', 'fixture-v1:inspect');
     const job = await jobs.claim();
     if (job) {
-      log('JOB_STARTED',{program:program.id,job:job.id});
+      log('JOB_STARTED', { program: program.id, job: job.id });
+      let observationId: string | undefined;
+      let observation: unknown;
       try {
-        const observation = await new ToolGateway(pool,loadConfig).invoke(job,job.action,job.asset_id);
-        const analysis = await analyzeObservation(new FixtureLLM(),observation);
-        await jobs.complete(job,{...observation,analysis});
-        await pool.query('INSERT INTO agent_runs(id,job_id,role,model,result) VALUES($1,$2,$3,$4,$5)',[randomUUID(),job.id,'analysis',analysis.model,JSON.stringify(analysis)]);
-        log('JOB_COMPLETED',{program:program.id,job:job.id});
-      } catch (error) { await jobs.fail(job); throw error; }
+        observation = await new ToolGateway(pool, loadConfig).invoke(job, job.action, job.asset_id);
+        observationId = await jobs.complete(job, observation);
+      } catch (error) {
+        if (error instanceof Error && error.message === 'rate_limited') await jobs.defer(job);
+        else await jobs.fail(job);
+        log('JOB_FAILED', { program: program.id, job: job.id, result: error instanceof Error && /^[a-z_]+$/.test(error.message) ? error.message : 'operation_failed' });
+      }
+      if (observationId) {
+        try {
+          const analysis = await analyzeObservation(new FixtureLLM(), observation);
+          await jobs.recordAnalysis(job, observationId, analysis);
+          log('ANALYSIS_ACCEPTED', { program: program.id, job: job.id, result: `label:${analysis.analysis.label}` });
+        } catch (error) {
+          const failed = error as { response?: { text?: string; model?: string; modelDigest?: string; samplingOptions?: Record<string, unknown> }; input?: string; cause?: unknown };
+          const response = failed.response;
+          await jobs.recordAnalysisFailure(job, {
+            rawText: response?.text ?? null,
+            model: response?.model ?? 'unknown', modelDigest: response?.modelDigest ?? null,
+            samplingOptions: response?.samplingOptions ?? {}, promptHash: analysisPromptHash(boundedObservation(observation)), schemaVersion: '1', status: 'parse_failed',
+            errorCode: typeof failed.cause === 'string' ? failed.cause : 'analysis_parse_failed',
+          });
+          log('ANALYSIS_FAILED', { program: program.id, job: job.id, result: 'parse_failed' });
+        }
+      }
     }
-    await exportWorkspace(pool,config.PROGRAMS_DIR,program.id);
-    log('WORKSPACE_EXPORTED',{program:program.id});
+    await exportWorkspace(pool, config.PROGRAMS_DIR, program.id);
+    log('WORKSPACE_EXPORTED', { program: program.id });
   }
 } catch (error) {
-  // Controlled errors only; don't print database connection strings or arbitrary upstream payloads.
-  log('DEMO_FAILED',{result:error instanceof Error && /^[a-z_]+(?::.*)?$/.test(error.message) ? error.message : 'operation_failed'});
-  process.exitCode=1;
+  log('DEMO_FAILED', { result: error instanceof Error && /^[a-z_]+(?::.*)?$/.test(error.message) ? error.message : 'operation_failed' });
+  process.exitCode = 1;
 } finally { await pool.end(); }

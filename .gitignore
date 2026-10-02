@@ -13,5 +13,6 @@ programs/*
 *.log
 .DS_Store
 posture-results/
+models.lock.json
 targets.csv
 bounty-inbox.json

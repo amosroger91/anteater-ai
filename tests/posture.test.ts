@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { addressBlockReason, canonicalTarget, checkTarget, cookieWeakness, cspFindings, findingsFromResponse, findingsFromTls, hstsFindings, type CheckDeps, type ExchangeResult, type Finding, type TlsInfo } from '../scripts/posture-check.js';
-import { aggressiveOutcome, diffFindings, findingsFromNuclei, nextBaseline, nucleiArgs, parseCsv, parseRate, parseTagList, policyAllowsPosture, type Scanned } from '../scripts/posture-scan.js';
+import { aggressiveOutcome, diffFindings, findingsFromNuclei, nextBaseline, nucleiArgs, parseCsv, parseRate, parseTagList, pinnedNucleiTarget, policyAllowsPosture, type Scanned } from '../scripts/posture-scan.js';
 import { fixture } from '../fixtures/program.js';
 import { loadConfig } from '../packages/shared/config.js';
 
@@ -141,9 +141,14 @@ test('rate must be a positive integer and nuclei stays on the posture allowlist'
   assert.throws(() => parseRate('151'), /invalid_rate/);
   const args = nucleiArgs('https://example.com/', 'ssl,misconfig,exposure,tech', 'dos,intrusive,fuzz', 20);
   assert.equal(args.includes('-no-interactsh'), true);
-  assert.equal(args.includes('-follow-host-redirects'), true);
+  assert.equal(args.includes('-follow-host-redirects'), false);
   assert.equal(args.includes('-follow-redirects'), false);
   assert.equal(args[args.indexOf('-tags') + 1], 'ssl,misconfig,exposure,tech');
+  const pinned=pinnedNucleiTarget('https://api.example.test/','93.184.216.34');
+  assert.equal(pinned.target,'https://93.184.216.34/');
+  const pinnedArgs=nucleiArgs(pinned.target,'ssl','dos',20, 'http://127.0.0.1:8080','C:/templates', {ip:'93.184.216.34',hostname:pinned.hostname});
+  assert.equal(pinnedArgs.includes('-sni'),true); assert.equal(pinnedArgs[pinnedArgs.indexOf('-sni')+1],'api.example.test');
+  assert.equal(pinnedArgs[pinnedArgs.indexOf('-H')+1],'Host: api.example.test');
   assert.throws(() => parseTagList('dos', 'tags'), /unsafe_tags/);
   assert.throws(() => parseTagList('ssl,headless', 'tags'), /unsafe_tags/);
 });

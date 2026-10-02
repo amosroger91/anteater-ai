@@ -1,4 +1,3 @@
-BEGIN;
 CREATE TABLE IF NOT EXISTS programs (
   id text PRIMARY KEY, name text NOT NULL, platform text NOT NULL,
   program_url text NOT NULL, categories jsonb NOT NULL,
@@ -46,4 +45,3 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 );
 CREATE TABLE IF NOT EXISTS rate_limits (key text PRIMARY KEY, next_at timestamptz NOT NULL);
 CREATE TABLE IF NOT EXISTS workspace_outbox (program_id text PRIMARY KEY REFERENCES programs(id), revision bigint NOT NULL DEFAULT 1);
-COMMIT;

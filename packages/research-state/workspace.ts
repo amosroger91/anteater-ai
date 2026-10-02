@@ -14,9 +14,17 @@ export async function saveProgram(pool: pg.Pool, program: typeof fixture) {
       ON CONFLICT(id) DO UPDATE SET name=excluded.name,platform=excluded.platform,program_url=excluded.program_url,categories=excluded.categories,updated_at=now()`,
       [program.id,program.name,program.platform,program.programUrl,JSON.stringify(program.categories)]);
     await c.query(`INSERT INTO scope_rules(program_id,policy) VALUES($1,$2) ON CONFLICT(program_id) DO UPDATE SET policy=excluded.policy`, [program.id,JSON.stringify(policy)]);
+    const ids = program.assets.map(asset => asset.id);
+    await c.query(`UPDATE assets SET active=false WHERE program_id=$1 AND NOT (id = ANY($2::text[]))`, [program.id, ids]);
     for (const asset of program.assets) {
-      await c.query('INSERT INTO assets(id,program_id,url) VALUES($1,$2,$3) ON CONFLICT(id) DO NOTHING', [asset.id,program.id,asset.url]);
+      const result = await c.query(`INSERT INTO assets(id,program_id,url,active,policy_revision) VALUES($1,$2,$3,true,$4)
+        ON CONFLICT(id) DO UPDATE SET url=excluded.url,active=true,policy_revision=excluded.policy_revision
+        WHERE assets.program_id=excluded.program_id`, [asset.id,program.id,asset.url,policy.revision]);
+      if (!result.rowCount) throw new Error('asset_program_mismatch');
     }
+    await c.query(`UPDATE research_jobs SET status='failed',lease_token=NULL,lease_until=NULL,lease_heartbeat_at=NULL,result=$2
+      WHERE program_id=$1 AND policy_revision<>$3 AND status IN ('queued','running')`, [program.id, JSON.stringify({ error: 'policy_revision_changed' }), policy.revision]);
+    await c.query(`UPDATE research_jobs SET policy_revision=$2 WHERE program_id=$1 AND status='queued'`, [program.id,policy.revision]);
     await c.query(`INSERT INTO workspace_outbox(program_id) VALUES($1) ON CONFLICT(program_id) DO UPDATE SET revision=workspace_outbox.revision+1`, [program.id]);
   });
 }
@@ -31,7 +39,7 @@ export async function exportWorkspace(pool: pg.Pool, root: string, programId: st
     if (revision === undefined) return;
     const p = (await c.query('SELECT * FROM programs WHERE id=$1', [programId])).rows[0];
     const policy = (await c.query('SELECT policy FROM scope_rules WHERE program_id=$1', [programId])).rows[0]?.policy;
-    const assets = (await c.query('SELECT id,url FROM assets WHERE program_id=$1 ORDER BY id', [programId])).rows;
+    const assets = (await c.query('SELECT id,url,active,policy_revision FROM assets WHERE program_id=$1 ORDER BY id', [programId])).rows;
     const observations = (await c.query('SELECT id,body FROM observations WHERE program_id=$1 ORDER BY created_at,id', [programId])).rows;
     const findings = (await c.query('SELECT id,status,body FROM findings WHERE program_id=$1 ORDER BY id', [programId])).rows;
     const jobs = (await c.query('SELECT id,status,attempts FROM research_jobs WHERE program_id=$1 ORDER BY created_at,id', [programId])).rows;

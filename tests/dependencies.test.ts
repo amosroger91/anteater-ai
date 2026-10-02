@@ -1,9 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import { DependencyCatalog, parseGitlinks, selectDependencies, sparsePatterns, validateSelectedPaths } from '../packages/shared/dependencies.js';
 
-const raw=JSON.parse(await readFile(new URL('../dependencies/catalog.json',import.meta.url),'utf8'));
+async function readCatalog(): Promise<any> {
+  try { return JSON.parse(await readFile(new URL('../dependencies/catalog.json',import.meta.url),'utf8')); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EPERM') throw error;
+    // Some Windows network shares deny directory reads while Git can still read the tracked blob.
+    return JSON.parse(execFileSync('git',['show','HEAD:dependencies/catalog.json'],{encoding:'utf8'}));
+  }
+}
+const raw=await readCatalog();
 const catalog=DependencyCatalog.parse(raw);
 test('catalog is non-executable, unique, web-focused and uses public GitHub HTTPS origins',()=>{
   assert.ok(catalog.dependencies.length>=25);

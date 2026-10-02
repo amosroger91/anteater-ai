@@ -1,8 +1,8 @@
-# One row is one URL. A bare domain is checked as https://that-host/ only.
-# mode = passive (header and TLS) or aggressive (that check plus a posture-tagged nuclei run).
-# Aggressive rows run only with --confirm-aggressive. RFC1918 targets need --allow-private.
+# One row is one URL from a reviewed policy JSON file. A bare domain is checked as https://that-host/ only.
+# mode = passive (header and TLS) or aggressive (that check plus a pinned nuclei run).
+# Run: GLOBAL_KILL_SWITCH=false NUCLEI_BIN=/absolute/nuclei NUCLEI_TEMPLATES=/absolute/templates NUCLEI_TEMPLATE_DIGEST=<commit> npm run posture:scan -- targets.csv --policy=reviewed-policy.json
+# Aggressive rows additionally require --confirm-aggressive --egress-proxy=http://127.0.0.1:8080.
 # Quote a note that contains a comma.
 url,mode,notes
-https://example.com,passive,"neutral public host, demo"
-https://self-signed.badssl.com,passive,public TLS test host
-https://app.staging.internal,aggressive,example of an aggressive row (held without --confirm-aggressive)
+https://api.example.test,passive,"synthetic owned host, demo"
+https://staging.example.test,aggressive,example of an aggressive row (held without confirmation and egress proxy)

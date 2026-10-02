@@ -13,7 +13,7 @@ import { loadConfig } from '../packages/shared/config.js';
 //
 // mode=passive runs the read-only check.
 // mode=aggressive also runs a pinned nuclei binary through an operator-owned egress
-// proxy. Every row must be authorized by the supplied reviewed policy JSON.
+// proxy with redirects disabled. Every row must be authorized by the supplied reviewed policy JSON.
 //
 // usage: tsx scripts/posture-scan.ts [targets.csv] --policy=policy.json [--out=posture-results]
 //        [--confirm-aggressive] [--allow-private] [--egress-proxy=http://127.0.0.1:8080] [--rate=20]
@@ -29,7 +29,7 @@ type Mode = 'passive' | 'aggressive';
 export interface Row { url: string; mode: Mode; notes: string }
 export interface Scanned extends TargetResult {
   mode: Mode; executed: boolean; notes: string;
-  scanner?: { name: string; version: string; tags: string; excludeTags: string; rate: number };
+  scanner?: { name: string; version: string; tags: string; excludeTags: string; rate: number; templateDigest?: string };
 }
 interface ExecFailure extends Error { code?: string; stdout?: string | Buffer; stderr?: string | Buffer }
 
@@ -98,14 +98,25 @@ export function parseTagList(raw: string, label: string): string {
   return raw;
 }
 
-export function nucleiArgs(url: string, tags: string, excludeTags: string, rate: number, proxy?: string, templates?: string): string[] {
-  const args = ['-u', url, '-jsonl', '-silent', '-disable-update-check', '-no-interactsh', '-follow-host-redirects', '-tags', tags, '-exclude-tags', excludeTags, '-rate-limit', String(rate), '-timeout', '10'];
+export function pinnedNucleiTarget(url: string, ip: string): { target: string; hostname: string } {
+  const parsed = new URL(url);
+  const hostname = parsed.hostname;
+  parsed.hostname = ip;
+  return { target: parsed.toString(), hostname };
+}
+
+export function nucleiArgs(url: string, tags: string, excludeTags: string, rate: number, proxy?: string, templates?: string, pin?: { ip: string; hostname: string }): string[] {
+  const args = ['-u', url, '-jsonl', '-silent', '-disable-update-check', '-no-interactsh', '-tags', tags, '-exclude-tags', excludeTags, '-rate-limit', String(rate), '-timeout', '10'];
+  if (pin) args.push('-sni', pin.hostname, '-H', `Host: ${pin.hostname}`);
   if (proxy) args.push('-proxy', proxy);
   if (templates) args.push('-templates', templates);
   return args;
 }
 
 const NUCLEI_SEV: Record<string, Severity> = { info: 'info', low: 'low', medium: 'medium', high: 'high', critical: 'critical' };
+function safeDetail(value: string): string {
+  return value.replace(/[\r\n]/g, ' ').replace(/([?&][^=&#\s]+)=([^&#\s]*)/g, '$1=REDACTED').slice(0, 400);
+}
 
 export function aggressiveOutcome(stdout: string, stderr: string, target: string, code?: string): { findings: Finding[]; failed: boolean } {
   if (code === 'ENOENT') return { findings: [{ code: 'scanner_error', severity: 'info', detail: 'nuclei_not_installed' }], failed: true };
@@ -120,7 +131,7 @@ export function findingsFromNuclei(stdout: string, target: string): Finding[] {
   for (const line of stdout.split('\n').filter(Boolean)) {
     try {
       const event = JSON.parse(line) as { 'template-id'?: string; info?: { severity?: string }; 'matched-at'?: string };
-      const detail = String(event['matched-at'] ?? target).replace(/[\r\n]/g, ' ').slice(0, 400);
+      const detail = safeDetail(String(event['matched-at'] ?? target));
       findings.push({ code: event['template-id'] ?? 'nuclei', severity: NUCLEI_SEV[event.info?.severity ?? 'info'] ?? 'info', detail });
     } catch { /* a banner or progress line is not a finding */ }
   }
@@ -199,10 +210,11 @@ async function nucleiVersion(): Promise<string> {
   }
 }
 
-async function runAggressive(url: string, tags: string, excludeTags: string, rate: number, proxy: string, templates: string): Promise<{ findings: Finding[]; version: string; failed: boolean }> {
+async function runAggressive(url: string, ip: string, tags: string, excludeTags: string, rate: number, proxy: string, templates: string): Promise<{ findings: Finding[]; version: string; failed: boolean }> {
   const binary = process.env.NUCLEI_BIN;
   if (!binary || !isAbsolute(binary)) return { findings: [{ code: 'scanner_error', severity: 'info', detail: 'nuclei_binary_must_be_absolute_NUCLEI_BIN' }], version: 'unconfigured', failed: true };
-  const args = nucleiArgs(url, tags, excludeTags, rate, proxy, templates);
+  const pin = pinnedNucleiTarget(url, ip);
+  const args = nucleiArgs(pin.target, tags, excludeTags, rate, proxy, templates, { ip, hostname: pin.hostname });
   try {
     const { stdout } = await exec(binary, args, { encoding: 'utf8', timeout: 20 * 60_000, maxBuffer: 32 * 1024 * 1024, windowsHide: true });
     return { findings: findingsFromNuclei(stdout, url), version: await nucleiVersion(), failed: false };
@@ -260,7 +272,10 @@ if (isMain) {
     const tags = parseTagList(flags.get('tags') || DEFAULT_TAGS, 'tags');
     const requestedExclude = parseTagList(flags.get('exclude-tags') || DEFAULT_EXCLUDE, 'exclude_tags');
     const excludeTags = [...new Set([...DEFAULT_EXCLUDE.split(','), ...requestedExclude.split(',')])].join(',');
-    const rate = parseRate(flags.get('rate') || '20');
+    const requestedRate = parseRate(flags.get('rate') || '20');
+    const policyRate = Math.floor(policy.requestsPerSecond);
+    if (confirmAggressive && policyRate < 1) throw new Error('policy_rate_too_low_for_scanner');
+    const rate = Math.min(requestedRate, Math.max(1, policyRate));
     const proxy = flags.get('egress-proxy');
     const templates = process.env.NUCLEI_TEMPLATES;
     const templateDigest = process.env.NUCLEI_TEMPLATE_DIGEST;
@@ -286,12 +301,12 @@ if (isMain) {
         console.log(`  [aggressive] scanning ${canon.href} (nuclei tags=${tags}, same-host redirects, no interactsh, rate=${rate})...`);
         const checked = await checkTarget(canon.href, { allowPrivate });
         const active = checked.reachable
-          ? await runAggressive(canon.href, tags, excludeTags, rate, proxy!, templates!)
+          ? await runAggressive(canon.href, checked.ip!, tags, excludeTags, rate, proxy!, templates!)
           : { findings: [{ code: 'scanner_not_run', severity: 'info' as const, detail: 'passive reachability check did not authorize scanner execution' }], version: 'not_run', failed: false };
         results.push({
           ...checked, findings: [...checked.findings, ...active.findings], reachable: checked.reachable,
           mode: 'aggressive', executed: true, notes: row.notes,
-          scanner: { name: 'nuclei', version: active.version, tags, excludeTags, rate },
+          scanner: { name: 'nuclei', version: active.version, tags, excludeTags, rate, templateDigest },
         });
       } else results.push(heldResult(row, canon));
       await sleep(1000);

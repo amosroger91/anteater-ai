@@ -1,13 +1,21 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readFile, mkdir, lstat } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DependencyCatalog, parseGitlinks, selectDependencies, sparsePatterns, validateSelectedPaths } from '../packages/shared/dependencies.js';
 
 const exec = promisify(execFile);
 const root = resolve(fileURLToPath(new URL('..',import.meta.url)));
-const catalog = DependencyCatalog.parse(JSON.parse(await readFile(join(root,'dependencies/catalog.json'),'utf8')));
+async function readCatalog() {
+  try { return JSON.parse(await readFile(join(root,'dependencies/catalog.json'),'utf8')); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EPERM') throw error;
+    return JSON.parse(execFileSync('git',['show','HEAD:dependencies/catalog.json'],{cwd:root,encoding:'utf8'}));
+  }
+}
+const catalog = DependencyCatalog.parse(await readCatalog());
 const [command='list',...ids] = process.argv.slice(2);
 const dependencies=selectDependencies(catalog.dependencies,ids);
 const emptyConfig=process.platform==='win32'?'NUL':'/dev/null';

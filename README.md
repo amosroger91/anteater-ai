@@ -45,7 +45,7 @@ posture:scan
 | `npm run bounty:promote` | Append reviewed hosts to `targets.csv` as `passive` rows. Existing rows are left alone. |
 | `npm run bounty:refresh` | Update programs already in the inbox. A host that leaves scope loses its review. The rest of the dump is ignored, and `targets.csv` is not edited. |
 
-`npm run posture:scan` reads `url,mode,notes`. Each row is one URL. A bare hostname is checked as `https://that-host/` only. Passive mode is one pinned GET after one TLS handshake, with at most three same-host redirects. Loopback and link-local addresses are refused. Private addresses need `--allow-private`. Aggressive rows run only with `--confirm-aggressive`. See [operating instructions](docs/OPERATIONS.md).
+`npm run posture:scan -- targets.csv --policy=reviewed-policy.json` reads `url,mode,notes` only after the reviewed scope policy authorizes each row. Each row is one URL. A bare hostname is checked as `https://that-host/` only. Passive mode is one pinned GET after one TLS handshake, with at most three same-host, same-port redirects. Loopback and link-local addresses are refused. Private addresses need `--allow-private`. Aggressive rows additionally require `--confirm-aggressive`, a loopback egress proxy, and pinned Nuclei configuration. See [operating instructions](docs/OPERATIONS.md).
 
 Schedule `bounty:refresh` only after the handles you care about are already in the inbox. Do not point that job at `posture:scan`.
 
@@ -93,8 +93,8 @@ Use a normal clone followed by `deps:sync`; recursive submodule cloning can down
 | --- | --- |
 | Strict configuration, scope matching, exclusions and default kill switch | Full policy ingestion, approval provenance, DNS/IP and redirect enforcement |
 | PostgreSQL jobs, leases, fencing, deduplication and rate reservations | Continuous scheduler, lease renewal, cancellation and operational monitoring |
-| Durable observations and replayable Markdown exports | Versioned migrations and complete hypothesis/finding transition services |
-| Local Ollama provider interface and deterministic fixture model | Schema-constrained model analysis, grounded evidence and model evaluations |
+| Durable tool-only observations, versioned migrations, replayable Markdown exports and analysis provenance | Complete verification and finding transition services |
+| Schema-constrained Ollama provider, grounded evidence checks and deterministic fixture model | Live model worker, evaluation corpus and health monitoring |
 | 29 pinned source/data dependencies and update PRs | Reviewed runtime adapters, authenticated MCP and enforced sandbox egress |
 
 The checked-in Kali container is an inert, network-disabled boundary demonstration. It is not a ready-to-run scanner image. `ALLOW_ACTIVE_TESTING=true` does not enable a live executor. Findings submission remains a human-reviewed future stage.
@@ -142,6 +142,7 @@ Without Docker, `npm run verify:local` starts temporary PostgreSQL, runs integra
 | PROGRAMS_DIR | No | `programs`; trusted operator-owned export directory |
 | OLLAMA_URL | No | `http://127.0.0.1:11434`; loopback only |
 | LLM_MODEL | No | `qwen3:4b`; operator-selectable model |
+| OLLAMA_MODEL_DIGEST | Production model worker | Immutable `sha256:` digest recorded from `ollama show` |
 
 ## Usage
 
@@ -150,8 +151,9 @@ Without Docker, `npm run verify:local` starts temporary PostgreSQL, runs integra
 | `npm run check` | Compile TypeScript and run unit tests |
 | `npm run test:integration` | Test a running PostgreSQL in an isolated schema |
 | `npm run verify:local` | Temporary native PostgreSQL, integration tests, fixture replay |
-| `npm run db:migrate` | Apply idempotent initial schema |
+| `npm run db:migrate` | Apply ordered, idempotent schema migrations |
 | `npm run demo` | One bounded fixture iteration; explicit kill-switch override required |
+| `npm run worker -- --once` | Process one policy-bound queued fixture job with lease heartbeats |
 | `npm run models:inspect` | Detect NVIDIA VRAM and display conservative setup guidance |
 | `npm run deps:list` | List web dependencies and committed revisions |
 | `npm run deps:check` | Verify catalog, origins, branches and gitlinks |
@@ -161,10 +163,10 @@ Without Docker, `npm run verify:local` starts temporary PostgreSQL, runs integra
 | `npm run bounty:promote` | Copy reviewed hosts into `targets.csv` as passive rows |
 | `npm run bounty:refresh` | Refresh inbox programs already fetched; does not edit the scan CSV |
 | `npm run bounty:list` | Show inbox assets and their review state |
-| `npm run posture:scan` | Check URLs in `targets.csv`; one URL per row |
+| `npm run posture:scan -- <csv> --policy=<json>` | Policy-bound posture scan; one URL per row |
 | `npm run posture:check -- <url>` | Read-only check of one host, outside the CSV |
 
-There is no HTTP API or continuously running daemon yet.
+The worker provides a continuously running fixture loop with graceful signal handling. Live target executors and authenticated HTTP/MCP control remain disabled until the readiness checklist is complete.
 
 ## Project structure
 

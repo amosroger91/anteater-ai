@@ -2,7 +2,7 @@
 
 ## Implemented boundary
 
-The first task is a fixture-only vertical slice. PostgreSQL is authoritative for normalized program metadata, reviewed versioned policies, assets, jobs, observations and export work. Agents receive bounded structured input. The model can produce analysis text; it cannot rewrite policy, call arbitrary tools or submit reports.
+The first task is a fixture-only vertical slice. PostgreSQL is authoritative for normalized program metadata, reviewed versioned policies, assets, jobs, observations and export work. Agents receive bounded structured input. The model produces a schema-constrained hypothesis and raw provenance in an analysis row; it cannot rewrite policy, call arbitrary tools or submit reports.
 
 Discovery is an interface and a local fixture implementation. Classification is supplied by the fixture; real classification and policy ingestion are milestone 2. A production policy compiler must require explicit operator review and record the source document hash before accepting machine rules. A discovered hostname alone grants no permission.
 

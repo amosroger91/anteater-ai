@@ -22,7 +22,7 @@ Install Ollama through a verified package-manager installation, then run `npm ru
 
 `latest.json` stores executed targets only. A held aggressive row is written to the timestamped scan file and does not replace the previous baseline. Diffs report new codes, resolved codes, and a severity or detail change on an existing code.
 
-Aggressive mode also runs local `nuclei` only with `--confirm-aggressive --egress-proxy=http://127.0.0.1:8080`, `NUCLEI_BIN` set to an absolute executable, `NUCLEI_TEMPLATES` set to an absolute local template directory, and `NUCLEI_TEMPLATE_DIGEST` set to the reviewed template commit. The fixed tags are `ssl,misconfig,exposure,tech`; intrusive tags can never be enabled. Nuclei is not started if the pinned passive check cannot reach the target. Results are retained for 30 days by default and written with restrictive file permissions.
+Aggressive mode also runs local `nuclei` only with `--confirm-aggressive --egress-proxy=http://127.0.0.1:8080`, `NUCLEI_BIN` set to an absolute executable, `NUCLEI_TEMPLATES` set to an absolute local template directory, and `NUCLEI_TEMPLATE_DIGEST` set to the reviewed template commit. The fixed tags are `ssl,misconfig,exposure,tech`; intrusive tags can never be enabled and Nuclei redirects are disabled. Nuclei is not started if the pinned passive check cannot reach the target. Results are retained for 30 days by default and written with restrictive file permissions.
 
 ## Bounty review inbox
 
@@ -34,4 +34,4 @@ Public platform APIs do not hand out an anonymous, complete scope list. `npm run
 
 This milestone is not ready for autonomous deployment against live programs. Keep the kill switch on. Before production, use dedicated database credentials and network restrictions, TLS for remote database connections, versioned migrations, tested backups/restores, an authenticated operator interface, process supervision, a persistent scheduler and exporter, telemetry, host resource budgets and all items in READINESS.md. The local Compose password is a disposable development value only. No production rollout is provided or implied.
 
-The current command handles normal completion and errors by closing its database pool. Forced termination leaves a lease that another worker can reclaim; graceful signal-driven worker shutdown is part of the next operations milestone.
+The bounded demo and continuous worker close their database pools on normal completion and errors. The worker handles SIGINT/SIGTERM by stopping new claims; a forced termination leaves a lease that another worker can reclaim, and the heartbeat extends leases during long tool calls.

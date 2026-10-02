@@ -16,6 +16,7 @@ const schema = z.object({
     return u.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname) && !u.username && !u.password && u.pathname === '/' && !u.search && !u.hash;
   }, 'Local loopback Ollama endpoint required'),
   LLM_MODEL: z.string().min(1).default('qwen3:4b'),
+  OLLAMA_MODEL_DIGEST: z.string().regex(/^sha256:[a-f0-9]{64}$/i).optional(),
 });
 export const loadConfig = (env: NodeJS.ProcessEnv = process.env) => schema.parse(env);
 export type Config = ReturnType<typeof loadConfig>;
