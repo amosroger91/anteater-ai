@@ -49,6 +49,6 @@
     "@types/pg": "^8.15.5",
     "embedded-postgres": "17.10.0-beta.17",
     "tsx": "^4.20.5",
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   }
 }
