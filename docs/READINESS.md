@@ -12,7 +12,7 @@ Anteater is a locally validated prototype. Its default kill switch remains on, a
 - Candidate discovery/admission libraries, Subfinder/CT/passive-DNS/Gitleaks adapters, methodology registry, web/API checks, finding/retest helpers, offline infrastructure analyzers, evidence utilities, and operations decision logic.
 - 29 commit-pinned upstream source/data dependencies. Imported repositories are not executed just because they are pinned.
 
-Local verification after the marker-cleanup edit: TypeScript build and 127 unit tests pass. Before that edit, 3 browser tests and 14 PostgreSQL integration tests passed, and all 29 dependency pins verified. The browser suite was not rerun after the edit; the new malformed-create-response cleanup test remains unverified. Browser tests use real Chromium against an injected synthetic HTTP transport and mocked mailbox. No research target, real account, or external mailbox was used.
+The review-hardening implementation adds the local passive dashboard, explicit coverage execution records, canonical-principal verification, durable cleanup intents, coordinated retention, and browser CI. See [VALIDATION.md](VALIDATION.md) and [REVIEW_HARDENING.md](REVIEW_HARDENING.md) for current verification and boundaries.
 
 ## Required before production operation
 
@@ -22,7 +22,7 @@ Local verification after the marker-cleanup edit: TypeScript build and 127 unit 
 - [ ] Run against an owned vulnerable/patched staging app and real test mailbox; prove identity, isolation, marker cleanup, cleanup after timeout/crash, and safe behavior under mailbox and network failures.
 - [ ] Add role-aware secrets and support at least two ordinary users plus an explicitly supplied least-privilege administrator. The current browser profile supports at most two accounts and does not label roles.
 - [ ] Connect browser/API inventory, budgets, approved tool adapters, and methodology checks into one persistent campaign. The current worker processes submitted roots only; most detector packages are not live worker stages.
-- [ ] Align the 13 WSTG 4.2 / ASVS 4.0.3 references, licenses, and source revisions with the vendored methodology versions; expand coverage and show every gap.
+- [ ] Expand the explicit WSTG 4.2 subset, review licenses and source revisions, and add separately verified ASVS mappings; show every gap.
 - [ ] Integrate complete finding states, encrypted/redacted evidence lifecycle, human reviewer identity, impact ranking, report editing, and retest jobs.
 - [ ] Wire fleet-wide kill/revocation, operational metrics/alerts, dead-letter controls, least-privilege DB roles, retention jobs, backup/restore, and crash/reboot drills.
 - [ ] Verify real model weights and inference if enabled; establish a task-specific evaluation set and bounded fleet concurrency.

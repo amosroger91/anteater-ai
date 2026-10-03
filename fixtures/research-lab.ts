@@ -2,6 +2,15 @@ import http from 'node:http';
 import { once } from 'node:events';
 import { randomBytes } from 'node:crypto';
 import type { Exchange } from '../packages/application-research/transport.js';
+import type { CleanupIntent, CleanupJournal } from '../packages/application-research/cleanup.js';
+
+// Synthetic transport tests only. Production always injects the PostgreSQL journal.
+export class FixtureCleanupJournal implements CleanupJournal {
+  readonly records = new Map<string, CleanupIntent>();
+  async pending() { return [...this.records.values()].map(value => structuredClone(value)); }
+  async prepare(intent: CleanupIntent) { this.records.set(intent.id, structuredClone(intent)); }
+  async complete(id: string) { this.records.delete(id); }
+}
 
 export async function startResearchLab(options: { vulnerable?: boolean; challenge?: boolean; signup?: boolean; tokenAuth?: boolean; missingIdOnCreate?: boolean } = {}) {
   const users = new Map<string, { password: string; verified: boolean }>([['alice@example.test', { password: 'alice-password', verified: true }], ['bob@example.test', { password: 'bob-password', verified: true }]]);
@@ -41,7 +50,7 @@ export async function startResearchLab(options: { vulnerable?: boolean; challeng
       const id = randomBytes(12).toString('hex'); sessions.set(id, fields.email);
       res.writeHead(303, { 'set-cookie': `session=${id}; Path=/; Secure; HttpOnly; SameSite=Lax`, location: '/dashboard' }); res.end(); return;
     }
-    if (path === '/api/me') { json(user ? 200 : 401, user ? { email: user } : {}); return; }
+    if (path === '/api/me') { json(user ? 200 : 401, user ? { email: user, id: user } : {}); return; }
     if (path === '/api/documents' && req.method === 'POST') {
       if (!user) { json(401, {}); return; }
       const id = randomBytes(8).toString('hex'); records.set(id, { owner: user, title: fields.title }); json(201, options.missingIdOnCreate ? {} : { id }); return;

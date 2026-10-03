@@ -14,9 +14,12 @@ export const AuthSchema = z.object({
   loginWritePaths: z.array(safePath).max(30).default(['/login', '/signin', '/api/login']),
   signupWritePaths: z.array(safePath).max(30).default(['/register', '/signup', '/api/register']),
   verificationPaths: z.array(safePath).max(20).default(['/verify', '/verify-email']),
-  accounts: z.array(z.object({ id: z.string().regex(/^[a-z0-9-]+$/), usernameEnv: envName, passwordEnv: envName }).strict()).max(2).default([]),
+  accounts: z.array(z.object({ id: z.string().regex(/^[a-z0-9-]+$/), usernameEnv: envName, passwordEnv: envName }).strict()).max(2)
+    .refine(accounts => new Set(accounts.map(account => account.id)).size === accounts.length, 'duplicate_account_id').default([]),
   signupEnabled: z.boolean().default(false), mailbox: MailboxSchema.optional(),
   sessionPath: safePath.optional(), identityPointer: z.string().startsWith('/').default('/email'),
+  // A canonical server-side subject ID distinguishes aliases for the same account.
+  principalPointer: z.string().startsWith('/').default('/id'),
 }).strict();
 export const ApplicationSchema = z.object({
   readPathPrefixes: z.array(safePath).min(1).max(100).default(['/']),

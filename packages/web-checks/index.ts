@@ -27,7 +27,7 @@ export function securityHeaders(v: HttpResponseView): WebFinding[] {
 export function cors(v: HttpResponseView): WebFinding[] {
   const acao = header(v, 'access-control-allow-origin');
   const acac = header(v, 'access-control-allow-credentials').toLowerCase();
-  if (acao === '*' && acac === 'true') return [{ code: 'cors_wildcard_with_credentials', severity: 'high', detail: 'ACAO:* with credentials' }];
+  if (acao === '*' && acac === 'true') return [{ code: 'cors_invalid_credentials_configuration', severity: 'info', detail: 'Wildcard origin with credentials is rejected by browsers; these headers do not demonstrate a readable sensitive response.' }];
   return [];
 }
 
@@ -45,10 +45,10 @@ export function unsafeRedirect(v: HttpResponseView): WebFinding[] {
   if (!location) return [];
   try {
     const target = new URL(location, v.requestHost ? `https://${v.requestHost}` : undefined);
-    if (v.requestHost && target.hostname !== v.requestHost) return [{ code: 'open_redirect', severity: 'medium', detail: `-> ${target.hostname}` }];
+    if (v.requestHost && target.hostname !== v.requestHost) return [{ code: 'external_redirect_observed', severity: 'info', detail: `Redirect to ${target.hostname}; attacker control has not been established.` }];
   } catch {
     // A relative Location with no base is same-origin; a malformed absolute one is suspicious.
-    if (/^https?:\/\//i.test(location)) return [{ code: 'open_redirect', severity: 'medium', detail: 'malformed absolute redirect' }];
+    if (/^https?:\/\//i.test(location)) return [{ code: 'malformed_redirect_observed', severity: 'info', detail: 'Malformed absolute Location; exploitability has not been established.' }];
   }
   return [];
 }

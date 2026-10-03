@@ -6,12 +6,21 @@ import { detectorGate, type DetectorCase } from '../packages/benchmark/index.js'
 import { parseOpenApi, parseGraphQLIntrospection, mergeInventory, observedEndpoints } from '../packages/api-inventory/index.js';
 import { openApiFixture } from '../packages/fixtures-apps/index.js';
 
+test('passive redirects and incompatible CORS headers do not claim exploitation', () => {
+  const redirect = unsafeRedirect({ status: 302, body: '', requestHost: 'app.example.test', headers: { location: 'https://login.example.test/sso' } });
+  assert.equal(redirect[0]?.code, 'external_redirect_observed');
+  assert.equal(redirect[0]?.severity, 'info');
+  const result = cors(responseFixture('cors', 'vulnerable'));
+  assert.equal(result[0]?.severity, 'info');
+  assert.ok(![...redirect, ...result].some(finding => finding.code === 'open_redirect' || finding.severity === 'high'));
+});
+
 test('every web detector flags its vulnerable fixture and passes its patched fixture (release gate)', () => {
   const cases: DetectorCase[] = [
     { name: 'headers', detector: securityHeaders, code: 'missing_security_headers', vulnerable: responseFixture('headers', 'vulnerable'), patched: responseFixture('headers', 'patched') },
-    { name: 'cors', detector: cors, code: 'cors_wildcard_with_credentials', vulnerable: responseFixture('cors', 'vulnerable'), patched: responseFixture('cors', 'patched') },
+    { name: 'cors', detector: cors, code: 'cors_invalid_credentials_configuration', vulnerable: responseFixture('cors', 'vulnerable'), patched: responseFixture('cors', 'patched') },
     { name: 'cache', detector: cacheExposure, code: 'sensitive_response_cacheable', vulnerable: responseFixture('cache', 'vulnerable'), patched: responseFixture('cache', 'patched') },
-    { name: 'redirect', detector: unsafeRedirect, code: 'open_redirect', vulnerable: responseFixture('redirect', 'vulnerable'), patched: responseFixture('redirect', 'patched') },
+    { name: 'redirect', detector: unsafeRedirect, code: 'external_redirect_observed', vulnerable: responseFixture('redirect', 'vulnerable'), patched: responseFixture('redirect', 'patched') },
     { name: 'cookie', detector: cookieFlags, code: 'weak_cookie_flags', vulnerable: responseFixture('cookie', 'vulnerable'), patched: responseFixture('cookie', 'patched') },
   ];
   const result = detectorGate(cases);

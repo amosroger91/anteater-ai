@@ -1,5 +1,7 @@
 # Production roadmap
 
+For the full product and engineering delivery sequence, see [IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md). This document retains the capability status and production release boundaries.
+
 Anteater is a scope-first framework for repeatable web and API security checks. Its goal is to automate bounded, evidence-backed work so people can focus on business impact, novel attack paths, and remediation decisions. It must report coverage honestly; it cannot promise to find every vulnerability.
 
 ## Current state
@@ -8,7 +10,7 @@ The current working tree includes a domain-list worker, a reviewed per-campaign 
 
 This is a working prototype, not a production service. The automated tests use Chromium with an injected synthetic transport and a fake application/mailbox. They do not validate DNS, TLS, browser egress, a live login, a real mailbox, or cleanup behavior against an independently controlled staging application. The worker scans only submitted roots: discovery adapters and downstream checks are not yet joined into an unattended discovery-to-report campaign. Most additional detectors and infrastructure analyzers are libraries with fixture tests, not live worker stages.
 
-The latest post-change check passes the TypeScript build and 127 unit tests. Before the marker-cleanup change, 3 browser tests and 14 PostgreSQL integration tests passed, and all 29 dependency pins verified. The browser suite was not rerun after the cleanup change, so its new malformed-create-response case is unverified. See [VALIDATION.md](VALIDATION.md) for the exact test boundaries and [READINESS.md](READINESS.md) for production gates.
+The review-hardening implementation adds the local passive dashboard, explicit coverage execution records, canonical-principal verification, durable cleanup intents, coordinated retention, and browser CI. See [VALIDATION.md](VALIDATION.md) and [REVIEW_HARDENING.md](REVIEW_HARDENING.md) for current verification and boundaries.
 
 ## Capability status
 
@@ -38,9 +40,9 @@ The latest post-change check passes the TypeScript build and 127 unit tests. Bef
 
 ### 4. Methodology coverage and web/API checks
 
-- [x] A version-labelled registry maps 8 passive posture checks to 13 WSTG 4.2 and ASVS 4.0.3 references; status reports distinguish candidates, passed checks, skipped checks, and not-applicable checks.
+- [x] A version-labelled registry maps eight passive posture checks to four WSTG 4.2 references; ASVS coverage is not claimed; status reports distinguish candidates, passed checks, skipped checks, and not-applicable checks.
 - [x] Registry validation and vulnerable/patched fixtures exist. Web-check, API inventory, tool-adapter, budget, and owned-source-analysis modules are present.
-- [ ] Expand and review the methodology subset, retain source/license revisions, and reconcile the ASVS 4.0.3 references with the vendored ASVS 5.0 revision.
+- [ ] Expand and review the methodology subset, retain source/license revisions, and add independently reviewed mappings for the vendored ASVS revision.
 - [ ] Connect the APIs, checks, budgets, and reviewed tool adapters to the live egress worker. Browser-discovered endpoints and API inventories are not yet fed through a complete methodology run.
 - [ ] Add independently reviewed budgets, safe-stop rules, response evidence contracts, and vulnerable/patched fixtures for each newly enabled live detector.
 

@@ -80,21 +80,26 @@ export class RequestGate {
   readonly blocked: Record<string, number> = {};
   readonly ownedDeletes = new Set<string>();
   count = 0;
+  private ordinaryRequests = 0;
+  private cleanupRequests = 0;
   constructor(readonly origin: string, readonly app: Application, readonly signal: AbortSignal,
-    private beforeRequest: (signal: AbortSignal) => Promise<void>, private exchange: Exchange = pinnedExchange,
+    private beforeRequest: (signal: AbortSignal, active?: boolean) => Promise<void>, private exchange: Exchange = pinnedExchange,
     private activeEnabled = false) {}
   deny(reason: string) { this.blocked[reason] = (this.blocked[reason] ?? 0) + 1; }
-  async send(session: string, purpose: Purpose, value: string, method = 'GET', headers: Record<string, string> = {}, body?: Buffer): Promise<ExchangeResponse> {
-    this.signal.throwIfAborted();
+  async send(session: string, purpose: Purpose, value: string, method = 'GET', headers: Record<string, string> = {}, body?: Buffer, cleanup = false): Promise<ExchangeResponse> {
+    // Cleanup has a separate bounded allowance; current policy is still checked before connecting.
+    if (cleanup && (method !== 'DELETE' || purpose !== 'verify' || !this.ownedDeletes.has(value))) throw new Error('cleanup_denied');
+    if (!cleanup) this.signal.throwIfAborted();
     if (!allowedRequest(this.origin, this.app, value, method, purpose, this.ownedDeletes)) { this.deny('out_of_scope_or_method'); throw new Error('request_denied'); }
     if (!['GET', 'HEAD'].includes(method) && !this.activeEnabled) { this.deny('active_testing_disabled'); throw new Error('active_testing_disabled'); }
     if ((body?.length ?? 0) > 65536) throw new Error('request_body_too_large');
-    if (this.count >= this.app.maxRequests) { this.deny('request_budget'); throw new Error('request_budget'); }
+    if (cleanup ? this.cleanupRequests >= 10 : this.ordinaryRequests >= this.app.maxRequests) { this.deny('request_budget'); throw new Error('request_budget'); }
+    if (cleanup) this.cleanupRequests++; else this.ordinaryRequests++;
     this.count++;
-    const signal = AbortSignal.any([this.signal, AbortSignal.timeout(15000)]);
+    const signal = cleanup ? AbortSignal.timeout(15000) : AbortSignal.any([this.signal, AbortSignal.timeout(15000)]);
     signal.throwIfAborted();
     const response = await abortable(this.exchange({ url: new URL(value), method, headers, body, signal, maxBytes: this.app.maxResponseBytes,
-      beforeConnect: () => abortable(this.beforeRequest(signal), signal) }), signal);
+      beforeConnect: () => abortable(this.beforeRequest(signal, !['GET', 'HEAD'].includes(method)), signal) }), signal);
     this.endpoints.push({ url: publicUrl(value), method, session, status: response.status, contentType: String(response.headers['content-type'] ?? '').slice(0, 100), hash: createHash('sha256').update(response.body).digest('hex'), truncated: response.truncated });
     return response;
   }

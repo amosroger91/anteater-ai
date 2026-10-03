@@ -6,6 +6,10 @@ A web-development-focused, scope-first foundation for authorized web and API sec
 
 Anteater stores reviewed program policy, assets, bounded jobs, observations and evidence metadata in PostgreSQL, then exports a readable Markdown workspace. The default runs a synthetic fixture. An explicitly enabled passive HTTPS adapter can collect from reviewed program manifests, propose fixed-path follow-ups, and record posture signals for operator review.
 
+## Local dashboard
+
+Run `npm run dashboard` and open **http://127.0.0.1:4317** for target entry, reviewed scope, assessment progress, per-target findings, coverage gaps and report downloads. No CSV, database, Docker or frontend build is required. Live requests start disabled; **Explore a demo** uses synthetic results only. See [dashboard instructions](docs/DASHBOARD.md).
+
 ## Architecture
 
 ```text
@@ -94,15 +98,15 @@ Use a normal clone followed by `deps:sync`; recursive submodule cloning can down
 | Reviewed domain-list profile, root-job worker, bounded passive HTTPS collector and PostgreSQL leases | Authenticated policy approval, discovery-to-queue wiring, independent egress enforcement and scheduled revisits |
 | Opt-in Playwright research with two isolated accounts, identity checks, optional encrypted generated accounts and IMAP verification | Real owned-staging validation, role-aware credential service, account lifecycle, and verified browser/network isolation |
 | Configured owner-resource replay with negative controls and marker-based cleanup | Broader route/role coverage, live cleanup proof, persistent reviewer decisions and scheduled retests |
-| Eight passive posture coverage checks, a 13-reference WSTG/ASVS registry, fixture gates, API inventory and offline analyzers | Broader methodology coverage and integration of checks/inventory into the live campaign |
+| Eight passive posture coverage checks, a four-reference WSTG 4.2 subset, fixture gates, API inventory and offline analyzers | Broader methodology coverage and integration of checks/inventory into the live campaign |
 | Deterministic finding/retest helpers, remediation text, evidence hashes and audit data | End-to-end finding lifecycle, evidence key management, human identity and impact-ranked reports |
 | 29 pinned source/data dependencies and update checks | Reviewed runtime tool adapters, authenticated MCP, operational monitoring and recovery drills |
 
 The checked-in Kali container is an inert, network-disabled boundary demonstration. `ENABLE_PASSIVE_HTTP=true` enables only the reviewed read-only worker adapter. Application research additionally requires `ENABLE_APPLICATION_RESEARCH=true`; login, signup, resource creation and replay require `ALLOW_ACTIVE_TESTING=true` plus explicit profile paths. These switches do not replace host/container egress isolation. Findings submission remains a human-reviewed future stage.
 
-The latest post-change check passed the TypeScript build and **127 unit tests**. Before the latest marker-cleanup change, **3 browser tests** and **14 PostgreSQL integration tests** passed, and the registry check verified all 29 pinned dependencies. The browser suite was not rerun after that change; its new malformed-create-response cleanup case remains unverified. Browser tests use real Chromium with an injected synthetic application transport and mailbox; no research target, real login, or real mailbox was tested. See [validation details](docs/VALIDATION.md), the [production roadmap](docs/PRODUCTION_ROADMAP.md), and [readiness gates](docs/READINESS.md). Native PostgreSQL provided the local integration-test path; local Docker runtime and real model inference remain unverified.
+The review-hardening implementation adds the local passive dashboard, explicit coverage execution records, canonical-principal verification, durable cleanup intents, coordinated retention, and browser CI. See [validation](docs/VALIDATION.md) and [implementation boundaries](docs/REVIEW_HARDENING.md).
 
-## Quick start
+## Worker quick start
 
 Requires Node.js 22+ and Docker Compose with a running Linux engine.
 
@@ -143,10 +147,10 @@ Without Docker, `npm run verify:local` starts temporary PostgreSQL, runs integra
 | ACCOUNT_KEY | No | Unset; 32-byte hex key required only for generated test accounts |
 | PROGRAM_SOURCE | No | `fixture`; set `file` for reviewed manifests |
 | PROGRAMS_FILE | File provider | Path to reviewed JSON; see `fixtures/programs.example.json` |
-| MAX_RESPONSE_BYTES | No | `65536`; capture limit, bounded 1024–1048576 |
+| MAX_RESPONSE_BYTES | No | `65536`; capture limit, bounded 1024â€“1048576 |
 | MAX_CONCURRENT_JOBS | No | `1`; same setting required across all workers |
 | MAX_REQUEST_RATE | No | `1`; global invocations/second, bounded to 10 |
-| JOB_LEASE_SECONDS | No | `30`; bounded 5–300 |
+| JOB_LEASE_SECONDS | No | `30`; bounded 5â€“300 |
 | PROGRAMS_DIR | No | `programs`; trusted operator-owned export directory |
 | OLLAMA_URL | No | `http://127.0.0.1:11434`; loopback only |
 | LLM_MODEL | No | `qwen3:4b`; operator-selectable model |

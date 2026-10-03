@@ -7,8 +7,10 @@
     "node": ">=22"
   },
   "scripts": {
+    "dashboard": "tsx apps/dashboard/server.ts",
+    "cleanup:list": "tsx scripts/cleanup-list.ts",
     "build": "tsc",
-    "test": "tsx --test tests/*.test.ts",
+    "test": "tsx --test --test-concurrency=4 tests/*.test.ts",
     "test:integration": "tsx --test tests/integration/*.test.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "demo": "tsx apps/orchestrator/demo.ts",

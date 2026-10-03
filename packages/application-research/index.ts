@@ -6,10 +6,11 @@ import { RequestGate, type Exchange } from './transport.js';
 import { ApplicationSchema, type Application } from './profile.js';
 import { imapVerifier, type VerifyMailbox } from './mailbox.js';
 import { verifyOwnership } from './verification.js';
+import type { CleanupJournal } from './cleanup.js';
 
-export interface ResearchDeps { browser?: Browser; exchange?: Exchange; mailbox?: VerifyMailbox; env?: NodeJS.ProcessEnv }
+export interface ResearchDeps { browser?: Browser; exchange?: Exchange; mailbox?: VerifyMailbox; env?: NodeJS.ProcessEnv; cleanupJournal?: CleanupJournal }
 export interface SessionCoverage { id: string; status: string; reason?: string; identityValidated: boolean }
-export async function researchApplication(origin: string, rawApp: Application, config: Config, beforeRequest: (signal: AbortSignal) => Promise<void>, parentSignal?: AbortSignal, deps: ResearchDeps = {}) {
+export async function researchApplication(origin: string, rawApp: Application, config: Config, beforeRequest: (signal: AbortSignal, active?: boolean) => Promise<void>, parentSignal?: AbortSignal, deps: ResearchDeps = {}) {
   const app = ApplicationSchema.parse(rawApp);
   const deadline = AbortSignal.timeout(app.maxDurationSeconds * 1000);
   const signal = parentSignal ? AbortSignal.any([parentSignal, deadline]) : deadline;
@@ -20,8 +21,7 @@ export async function researchApplication(origin: string, rawApp: Application, c
   const secrets = new Set<string>();
   const browser = deps.browser ?? await launchResearchBrowser();
   const sessions: BrowserSession[] = [];
-  const close = () => { for (const session of sessions) void session.close(); };
-  signal.addEventListener('abort', close, { once: true });
+  // Keep contexts until finally so owner-bound cleanup can use their cookies after a deadline.
   let findings: Awaited<ReturnType<typeof verifyOwnership>> = [];
   const auth = app.auth;
   const store = config.ACCOUNT_KEY ? new AccountStore(config.CREDENTIAL_STORE, config.ACCOUNT_KEY) : undefined;
@@ -86,24 +86,29 @@ export async function researchApplication(origin: string, rawApp: Application, c
           if (store && !auth.accounts.some(entry => entry.id === account.id)) await store.put(new URL(origin).hostname, account);
           coverage.push({ id: account.id, status: 'authenticated', identityValidated: Boolean(auth.sessionPath) });
           session.purpose = 'discover'; await session.crawl(origin + '/', app);
-          if (auth.sessionPath) authenticated.push(session);
+          if (session.principalId) {
+            if (authenticated.some(previous => previous.principalId === session.principalId)) gaps.push('ownership_checks_require_distinct_principals');
+            else authenticated.push(session);
+          }
         }
       } catch { coverage.push({ id: account.id, status: 'unavailable', reason: 'authentication_failed', identityValidated: false }); }
     }
-    findings = await verifyOwnership(app, authenticated, gaps);
+    findings = await verifyOwnership(app, authenticated, gaps, deps.cleanupJournal);
+    parentSignal?.throwIfAborted();
   } catch (error) {
     if (parentSignal?.aborted) throw error;
     gaps.push(deadline.aborted ? 'assessment_deadline' : 'assessment_interrupted');
   } finally {
-    signal.removeEventListener('abort', close);
     await Promise.allSettled(sessions.map(session => session.close()));
     if (!deps.browser) await browser.close();
   }
   const inventory = sessions.flatMap(session => session.inventory.map(page => ({ session: session.id, url: page.url, title: page.title, links: page.links, forms: page.forms })));
   const errors = [...new Set(sessions.flatMap(session => session.errors))];
+  const pendingCleanup = (await deps.cleanupJournal?.pending())?.map(intent => intent.id) ?? [];
+  if (pendingCleanup.length) gaps.push('cleanup_pending_operator_action');
   const report = { kind: 'OBSERVATION', executor: 'application-browser', target: origin,
     coverage: { sessions: coverage, pages: inventory.length, requests: gate.count, blocked: gate.blocked, gaps: [...new Set(gaps)], errors,
-      complete: !gaps.length && !errors.length && !Object.keys(gate.blocked).length }, inventory, endpoints: gate.endpoints, findings,
+      pendingCleanup, complete: !gaps.length && !errors.length && !Object.keys(gate.blocked).length }, inventory, endpoints: gate.endpoints, findings,
     signals: findings.map(finding => ({ code: finding.code, severity: finding.severity, detail: `Reproduced under rule ${finding.rule}; awaiting human review` })) };
   // Remove exact credential values even if the application echoes them in titles or URLs.
   let serialized = JSON.stringify(report);

@@ -10,6 +10,7 @@ export class BrowserSession {
   readonly inventory: PageInventory[] = [];
   readonly errors: string[] = [];
   private authorization?: string;
+  principalId?: string;
   private pending = new Set<Promise<unknown>>();
   private constructor(readonly id: string, readonly context: BrowserContext, readonly page: Page, readonly gate: RequestGate) {}
   static async create(browser: Browser, id: string, gate: RequestGate) {
@@ -105,18 +106,35 @@ export class BrowserSession {
     await form.evaluate((element: HTMLFormElement) => element.requestSubmit());
     await this.page.waitForTimeout(300); await this.settle();
   }
-  async request(url: string, method = 'GET', body?: unknown): Promise<ExchangeResponse> {
+  async request(url: string, method = 'GET', body?: unknown, cleanup = false): Promise<ExchangeResponse> {
     const headers: Record<string, string> = {};
     const cookies = await this.context.cookies(url); if (cookies.length) headers.cookie = cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ');
     if (this.authorization) headers.authorization = this.authorization;
     if (body !== undefined) headers['content-type'] = 'application/json';
-    return this.gate.send(this.id, this.purpose, url, method, headers, body === undefined ? undefined : Buffer.from(JSON.stringify(body)));
+    return this.gate.send(this.id, this.purpose, url, method, headers, body === undefined ? undefined : Buffer.from(JSON.stringify(body)), cleanup);
+  }
+  async identity(app: Application): Promise<{ username: unknown; principal: string } | undefined> {
+    if (!app.auth.sessionPath) return undefined;
+    const response = await this.request(new URL(app.auth.sessionPath, this.gate.origin).href);
+    if (response.status !== 200 || response.truncated) return undefined;
+    try {
+      const body = JSON.parse(response.body.toString());
+      const principal = jsonPointer(body, app.auth.principalPointer);
+      if ((typeof principal !== 'string' && typeof principal !== 'number') || !String(principal).trim() || String(principal).length > 256) return undefined;
+      return { username: jsonPointer(body, app.auth.identityPointer), principal: String(principal) };
+    } catch { return undefined; }
+  }
+  async identityUnchanged(app: Application): Promise<boolean> {
+    return Boolean(this.principalId && (await this.identity(app))?.principal === this.principalId);
   }
   async authenticated(account: Account, app: Application): Promise<boolean> {
+    this.principalId = undefined;
     if (await this.challenge()) return false;
     if (app.auth.sessionPath) {
-      const response = await this.request(new URL(app.auth.sessionPath, this.gate.origin).href);
-      try { return response.status === 200 && jsonPointer(JSON.parse(response.body.toString()), app.auth.identityPointer) === account.username; } catch { return false; }
+      const identity = await this.identity(app);
+      if (!identity || identity.username !== account.username) return false;
+      this.principalId = identity.principal;
+      return true;
     }
     return await this.page.locator('input[type=password]:visible').count() === 0 && await this.page.getByRole('link', { name: /log.?out|sign.?out/i }).count() > 0;
   }

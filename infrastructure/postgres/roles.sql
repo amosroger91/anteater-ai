@@ -19,6 +19,7 @@ END $$;
 
 GRANT SELECT, INSERT, UPDATE ON research_jobs, observations, agent_runs, tool_runs, dead_letter TO anteater_worker;
 GRANT SELECT, INSERT ON findings, evidence TO anteater_worker;
+GRANT SELECT, INSERT, DELETE ON resource_cleanup TO anteater_worker;
 -- The worker cannot UPDATE findings (so it cannot move a finding to VERIFIED/SUBMITTED).
 REVOKE UPDATE ON findings FROM anteater_worker;
 

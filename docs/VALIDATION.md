@@ -1,4 +1,19 @@
-# Initial milestone validation — 2026-10-02
+# Validation history
+
+## Dashboard and review hardening — 2026-10-02
+
+- TypeScript build and **137 unit tests passed**.
+- **9 Chromium browser tests passed**, including duplicate-principal rejection, alias-to-principal checks, interruption/reconciliation, asynchronous cleanup, dashboard scope entry, demo, report download, reload, safe text rendering and phone-width layout.
+- **15 reported PostgreSQL integration tests passed**, followed by idempotent fixture worker/demo replay. Added a populated-data retention test covering foreign-key relationships, evidence holds, durable cleanup, late analysis writes and regenerated exports.
+- Detector gate: **5/5 fixture pairs**, zero fixture false positives. This measures only the small synthetic corpus, not real-world effectiveness.
+- All **29 source dependency pins verified**. No upstream tool execution.
+- Dashboard screenshots inspected at desktop and 390px phone width. It runs locally at `http://127.0.0.1:4317`, with live requests disabled and a clearly labeled synthetic demo.
+- Node 24.13.0 on Windows; native temporary PostgreSQL. CI remains configured for Node 22 and PostgreSQL 17 with browser checks added. Remote CI has not been run for these local edits.
+- No real research target, login, external mailbox or model inference was used. Independent egress and owned-staging validation remain required.
+
+The initial clone at `1bb53b4` failed to build because the documented coverage package was absent and ignored. Earlier passing counts below are historical claims; the counts above describe the current verified local implementation. See [DASHBOARD.md](DASHBOARD.md) for use and [REVIEW_HARDENING.md](REVIEW_HARDENING.md) for limitations.
+
+## Initial milestone validation — 2026-10-02
 
 - `npm run check`: TypeScript build and 59 unit tests passed.
 - `npm run verify:local`: 9 reported integration tests (including the parent test) passed against native PostgreSQL 17; fixture demonstration and deduplicated replay passed.

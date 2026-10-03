@@ -32,6 +32,7 @@ export interface Finding { code: string; severity: Severity; detail: string }
 export interface TargetResult {
   target: string; origin: string; ip: string | null; reachable: boolean;
   findings: Finding[]; checkedAt: string;
+  executedChecks?: string[];
 }
 export interface ExchangeResult { status: number; headers: http.IncomingHttpHeaders }
 export interface TlsInfo {
@@ -275,6 +276,7 @@ export async function checkTarget(raw: string, options: CheckOptions = {}): Prom
   }
 
   let reachable = false;
+  const executedChecks: string[] = ['transport.encryption'];
   if (initial.protocol === 'https:') {
     const tlsInfo = await deps.tls(selected.address, Number(initial.port) || 443, initial.hostname);
     findings.push(...findingsFromTls(tlsInfo));
@@ -282,6 +284,8 @@ export async function checkTarget(raw: string, options: CheckOptions = {}): Prom
       return { target: canon.href, origin: canon.origin, ip: selected.address, reachable: false, findings, checkedAt };
     }
     reachable = true;
+    if (tlsInfo.protocol) executedChecks.push('tls.protocol');
+    executedChecks.push('tls.certificate');
   }
 
   let current = initial;
@@ -324,8 +328,12 @@ export async function checkTarget(raw: string, options: CheckOptions = {}): Prom
     findings.push({ code: reachable ? 'http_failed' : 'unreachable', severity: 'info', detail: error instanceof Error ? error.message : 'request failed' });
     response = null;
   }
-  if (response && (response.status < 300 || response.status >= 400)) findings.push(...findingsFromResponse(current, response.headers));
-  return { target: canon.href, origin: canon.origin, ip: selected.address, reachable, findings, checkedAt };
+  if (response && (response.status < 300 || response.status >= 400)) {
+    findings.push(...findingsFromResponse(current, response.headers));
+    executedChecks.push('headers.csp', 'headers.baseline', 'headers.disclosure', 'cookies.attributes');
+    if (current.protocol === 'https:') executedChecks.push('headers.hsts');
+  }
+  return { target: canon.href, origin: canon.origin, ip: selected.address, reachable, findings, checkedAt, executedChecks };
 }
 
 export function formatResult(result: TargetResult): string {

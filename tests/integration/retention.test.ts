@@ -1,0 +1,50 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { connect, migrate } from '../../packages/research-state/db.js';
+import { saveProgram, exportWorkspace } from '../../packages/research-state/workspace.js';
+import { PostgresCleanupJournal } from '../../packages/research-state/cleanup.js';
+import { Jobs } from '../../packages/research-state/jobs.js';
+import { loadConfig } from '../../packages/shared/config.js';
+import { fixture } from '../../fixtures/program.js';
+import { sweepRetention } from '../../packages/operations/retention.js';
+
+test('retention removes related payloads, preserves evidence holds, and cleanup survives new instances', async () => {
+  const admin = connect(loadConfig().DATABASE_URL); const schema = 'test_' + randomUUID().replaceAll('-', '');
+  await admin.query(`CREATE SCHEMA ${schema}`);
+  const url = new URL(loadConfig().DATABASE_URL); url.searchParams.set('options', `-c search_path=${schema}`);
+  const pool = connect(url.href); const directory = await mkdtemp(join(tmpdir(), 'anteater-retention-'));
+  try {
+    await migrate(pool); await saveProgram(pool, fixture);
+    const jobs = new Jobs(pool); await jobs.enqueue(fixture.id, 'fixture-api', 'inspect_http_target');
+    const job = (await jobs.claim())!;
+    const id = await jobs.complete(job, { secret: 'retention-test-payload', signals: [{ code: 'missing_hsts' }] });
+    const runId = randomUUID();
+    await pool.query("INSERT INTO agent_runs(id,job_id,role,result,raw_text) VALUES($1,$2,'analysis',$3,$4)", [runId, job.id, '{"secret":"retention-test-payload"}', 'retention-test-payload']);
+    await pool.query('INSERT INTO hypotheses(id,program_id,body,observation_id,agent_run_id) VALUES($1,$2,$3,$4,$5)', [randomUUID(), fixture.id, '{"secret":"retention-test-payload"}', id, runId]);
+    await pool.query("UPDATE observations SET created_at=now()-interval '100 days'");
+    const options = { observationDays: 90, deadLetterDays: 30, apply: true };
+    const journal = new PostgresCleanupJournal(pool, fixture.id);
+    const intent = { id: randomUUID(), origin: 'https://api.example.test', ownerHash: 'a'.repeat(64), ruleHash: 'b'.repeat(64), marker: 'test-marker', cleanupUrl: 'https://api.example.test/cleanup/test-marker' };
+    await journal.prepare(intent);
+    assert.deepEqual(await new PostgresCleanupJournal(pool, fixture.id).pending(), [intent]);
+    assert.equal((await sweepRetention(pool, options)).observations, 0);
+    await journal.complete(intent.id);
+    await pool.query("UPDATE findings SET status='HUMAN_REVIEW'");
+    assert.equal((await sweepRetention(pool, options)).observations, 0);
+    await pool.query("UPDATE findings SET status='REJECTED'");
+    assert.equal((await sweepRetention(pool, { ...options, apply: false })).observations, 1);
+    await exportWorkspace(pool, directory, fixture.id);
+    assert.match(await readFile(join(directory, fixture.id, 'RECON.md'), 'utf8'), /retention-test-payload/);
+    assert.equal((await sweepRetention(pool, options)).observations, 1);
+    await jobs.recordAnalysisFailure(job, { rawText: 'retention-test-payload', model: 'fixture', modelDigest: null, samplingOptions: {}, promptHash: 'hash', schemaVersion: '1', status: 'parse_failed', errorCode: 'late_response' });
+    for (const table of ['observations', 'hypotheses', 'agent_runs', 'tool_runs', 'findings']) assert.equal((await pool.query(`SELECT count(*)::int AS n FROM ${table}`)).rows[0].n, 0, table);
+    assert.equal((await pool.query('SELECT result FROM research_jobs WHERE id=$1', [job.id])).rows[0].result, null);
+    await exportWorkspace(pool, directory, fixture.id);
+    for (const file of ['RECON.md', 'HYPOTHESES.md', 'FINDINGS.md']) assert.doesNotMatch(await readFile(join(directory, fixture.id, file), 'utf8'), /retention-test-payload/);
+    assert.equal((await sweepRetention(pool, options)).observations, 0);
+  } finally { await pool.end(); await admin.query(`DROP SCHEMA ${schema} CASCADE`); await admin.end(); await rm(directory, { recursive: true, force: true }); }
+});

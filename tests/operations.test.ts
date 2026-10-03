@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { canProceed, retentionPlan, classifyFailure, type RevocationState } from '../packages/operations/index.js';
+import { retentionDays } from '../packages/operations/retention.js';
+
+test('retention rejects invalid windows rather than accepting destructive defaults', () => {
+  for (const value of [0, -1, 0.5, Infinity, NaN, '', 'oops']) assert.throws(() => retentionDays(value), /invalid_retention_days/);
+  assert.equal(retentionDays('90'), 90);
+});
 
 const base: RevocationState = { globalKill: false, revokedPrograms: [], epoch: 5 };
 

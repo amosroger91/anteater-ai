@@ -6,7 +6,7 @@ import { CHECKS, METHODOLOGY, coverageForTarget, coverageReport, validateRegistr
 // detector code is added there without a check or infrastructural mapping, this list + test flags it.
 const POSTURE_CODES = [
   'cleartext_http', 'tls_uninspectable', 'tls_outdated_protocol', 'tls_self_signed', 'tls_expired',
-  'tls_expiring', 'missing_hsts', 'missing_csp', 'missing_headers', 'version_disclosure',
+  'tls_expiring', 'tls_name_mismatch', 'tls_untrusted', 'missing_hsts', 'missing_csp', 'missing_headers', 'version_disclosure',
   'weak_cookie_flags', 'unreachable', 'invalid_target', 'unsupported_scheme',
 ];
 const INFRASTRUCTURAL = new Set(['unreachable', 'invalid_target', 'unsupported_scheme']);
@@ -28,11 +28,20 @@ const result = (origin: string, reachable: boolean, codes: string[]): ScanResult
   ({ origin, reachable, findings: codes.map(code => ({ code, severity: 'medium', detail: '' })) });
 
 test('a clean HTTPS target passes every applicable check and has no gaps', () => {
-  const c = coverageForTarget(result('https://clean.test', true, []));
+  const c = coverageForTarget({ ...result('https://clean.test', true, []), executedChecks: CHECKS.map(check => check.id) });
   assert.equal(c.gaps, 0);
   assert.equal(c.candidates, 0);
   assert.equal(c.executed, CHECKS.length);
   assert.ok(c.checks.every(x => x.status === 'passed'));
+});
+
+test('reachability and absence of findings never imply a check ran', () => {
+  const report = coverageForTarget(result('https://legacy.test', true, []));
+  assert.equal(report.executed, 0);
+  assert.equal(report.gaps, CHECKS.length);
+  const partial = coverageForTarget({ ...result('https://tls-only.test', true, ['http_failed']), executedChecks: ['tls.protocol', 'tls.certificate'] });
+  assert.equal(partial.executed, 2);
+  assert.equal(partial.checks.find(check => check.checkId === 'headers.hsts')?.status, 'skipped');
 });
 
 test('a finding becomes a candidate, not a pass', () => {

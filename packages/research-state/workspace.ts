@@ -51,6 +51,7 @@ export async function exportWorkspace(pool: pg.Pool, root: string, programId: st
     const hypotheses = (await c.query('SELECT id,body,observation_id,agent_run_id FROM hypotheses WHERE program_id=$1 ORDER BY id', [programId])).rows;
     const audit = (await c.query('SELECT event,job_id,asset_id,metadata,created_at FROM audit_events WHERE program_id=$1 ORDER BY created_at,id', [programId])).rows;
     const jobs = (await c.query('SELECT id,status,attempts FROM research_jobs WHERE program_id=$1 ORDER BY created_at,id', [programId])).rows;
+    const cleanup = (await c.query('SELECT id,intent,created_at FROM resource_cleanup WHERE program_id=$1 ORDER BY created_at,id', [programId])).rows;
     const directory = resolve(root, programId);
     await mkdir(directory, { recursive: true });
     if ((await lstat(directory)).isSymbolicLink()) throw new Error('workspace_symlink');
@@ -66,6 +67,7 @@ export async function exportWorkspace(pool: pg.Pool, root: string, programId: st
       'HYPOTHESES.md': '# Accepted model hypotheses\n\nUnverified suggestions; human_review is an operator triage hint.\n\n' + block(hypotheses),
       'AUDIT.md': '# Execution events\n\n' + block(audit),
       'HISTORY.md': '# Job history\n\n' + block(jobs),
+      'CLEANUP.md': '# Pending resource cleanup\n\nUnresolved obligations survive cancellation. Reconcile only under current policy and the original authenticated owner.\n\n' + block(cleanup),
     };
     for (const [name, content] of Object.entries(files)) {
       const temporary = join(directory, `.${name}.${randomUUID()}.tmp`);

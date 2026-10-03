@@ -106,6 +106,8 @@ export class Jobs {
 
   async recordAnalysis(job: Job, observationId: string, run: AnalysisRun) {
     await transaction(this.pool, async c => {
+      await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`program:${job.program_id}`]);
+      if (!(await c.query('SELECT 1 FROM observations WHERE id=$1 AND job_id=$2', [observationId, job.id])).rowCount) throw new Error('observation_expired');
       const runId = randomUUID();
       await c.query(`INSERT INTO agent_runs(id,job_id,role,model,result,raw_text,status,sampling_options,model_digest,prompt_hash,schema_version)
         VALUES($1,$2,'analysis',$3,$4,$5,'accepted',$6,$7,$8,$9)`, [
@@ -121,11 +123,15 @@ export class Jobs {
   }
 
   async recordAnalysisFailure(job: Job, failure: AnalysisFailure) {
-    await this.pool.query(`INSERT INTO agent_runs(id,job_id,role,model,result,raw_text,status,sampling_options,model_digest,prompt_hash,schema_version)
-      VALUES($1,$2,'analysis',$3,$4,$5,'parse_failed',$6,$7,$8,$9)`, [
-      randomUUID(), job.id, failure.model, JSON.stringify({ error: failure.errorCode }), failure.rawText,
-      JSON.stringify(failure.samplingOptions), failure.modelDigest, failure.promptHash, failure.schemaVersion,
-    ]);
+    await transaction(this.pool, async c => {
+      await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`program:${job.program_id}`]);
+      if (!(await c.query('SELECT 1 FROM observations WHERE job_id=$1', [job.id])).rowCount) return;
+      await c.query(`INSERT INTO agent_runs(id,job_id,role,model,result,raw_text,status,sampling_options,model_digest,prompt_hash,schema_version)
+        VALUES($1,$2,'analysis',$3,$4,$5,'parse_failed',$6,$7,$8,$9)`, [
+        randomUUID(), job.id, failure.model, JSON.stringify({ error: failure.errorCode }), failure.rawText,
+        JSON.stringify(failure.samplingOptions), failure.modelDigest, failure.promptHash, failure.schemaVersion,
+      ]);
+    });
   }
 
   async defer(job: Job, seconds = 5) {

@@ -7,9 +7,9 @@ import { detectorGate, type DetectorCase } from '../packages/benchmark/index.js'
 
 const cases: DetectorCase[] = [
   { name: 'headers', detector: securityHeaders, code: 'missing_security_headers', vulnerable: responseFixture('headers', 'vulnerable'), patched: responseFixture('headers', 'patched') },
-  { name: 'cors', detector: cors, code: 'cors_wildcard_with_credentials', vulnerable: responseFixture('cors', 'vulnerable'), patched: responseFixture('cors', 'patched') },
+  { name: 'cors', detector: cors, code: 'cors_invalid_credentials_configuration', vulnerable: responseFixture('cors', 'vulnerable'), patched: responseFixture('cors', 'patched') },
   { name: 'cache', detector: cacheExposure, code: 'sensitive_response_cacheable', vulnerable: responseFixture('cache', 'vulnerable'), patched: responseFixture('cache', 'patched') },
-  { name: 'redirect', detector: unsafeRedirect, code: 'open_redirect', vulnerable: responseFixture('redirect', 'vulnerable'), patched: responseFixture('redirect', 'patched') },
+  { name: 'redirect', detector: unsafeRedirect, code: 'external_redirect_observed', vulnerable: responseFixture('redirect', 'vulnerable'), patched: responseFixture('redirect', 'patched') },
   { name: 'cookie', detector: cookieFlags, code: 'weak_cookie_flags', vulnerable: responseFixture('cookie', 'vulnerable'), patched: responseFixture('cookie', 'patched') },
 ];
 
