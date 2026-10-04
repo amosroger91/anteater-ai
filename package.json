@@ -8,8 +8,10 @@
   },
   "scripts": {
     "dashboard": "tsx apps/dashboard/server.ts",
+    "assessment": "tsx scripts/assessment.ts",
     "cleanup:list": "tsx scripts/cleanup-list.ts",
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-runtime.mjs",
+    "start": "node dist/apps/dashboard/server.js",
     "test": "tsx --test --test-concurrency=4 tests/*.test.ts",
     "test:integration": "tsx --test tests/integration/*.test.ts",
     "db:migrate": "tsx scripts/migrate.ts",
@@ -37,7 +39,8 @@
     "verify:local": "tsx scripts/verify-local.ts",
     "deps:list": "tsx scripts/dependencies.ts list",
     "deps:check": "tsx scripts/dependencies.ts check",
-    "deps:sync": "tsx scripts/dependencies.ts sync"
+    "deps:sync": "tsx scripts/dependencies.ts sync",
+    "test:dashboard-build": "node scripts/smoke-dashboard.mjs"
   },
   "dependencies": {
     "imapflow": "2.2.1",

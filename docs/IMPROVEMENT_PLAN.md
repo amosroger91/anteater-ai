@@ -2,6 +2,12 @@
 
 Planning baseline: October 2, 2026. This plan describes proposed work against the current local implementation, including the passive dashboard and review-hardening changes. It does not claim those changes have been published or production-validated.
 
+## Implementation update — October 3, 2026
+
+The review-hardening and initial dashboard baseline is preserved at `7e23810`. The next increment implements named/versioned projects, incomplete drafts, exclusions, canonical scope preview, line-level errors, duplicate warnings, restart-safe submission keys, validated report migration with backups, archive/search/project filters, partial completion status, timestamps, failure guidance and local service health. It extracts the dashboard logic into a shared campaign service, adds a CLI client of that API, and streams progress through SSE with snapshot reconnect and polling fallback. Builds now include static assets and database migrations, with `npm start` for the compiled dashboard.
+
+This is substantial Phase 1 work and the local API/service groundwork for Phase 2. It does **not** complete the full plan. Remaining Phase 1 work includes per-check evidence/timing details, broader accessibility checks, pagination and a reviewed deletion flow. PostgreSQL-backed campaign/worker unification, shared revocation, durable event replay, finding review/comparisons, expanded detectors and production hosting remain open. Archive preserves data and does not implement deletion or retention. Full reconnect snapshots restore current progress; they are not a durable event log. Windows verification does not substitute for running Linux CI.
+
 ## 1. Product direction
 
 Build a lightweight, local-first workspace for authorized web and API assessments. A user should be able to define reviewed scope, understand what an assessment will do, follow its progress, examine evidence, assign a remediation owner, and verify a fix through the interface.

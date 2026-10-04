@@ -20,7 +20,7 @@ test('dashboard demo, scope form, report and mobile layout work in Chromium', { 
     const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
     await page.goto(app.origin);
     await page.getByRole('button', { name: 'Explore a demo' }).click();
-    await page.waitForFunction(() => document.getElementById('run-status')?.textContent === 'completed');
+    await page.waitForFunction(() => document.getElementById('run-status')?.textContent === 'completed with gaps');
     assert.equal(requests.length, 0, 'demo never invokes real transport');
     assert.equal(await page.locator('#metric-findings').textContent(), '2');
     assert.ok(await page.locator('#demo-notice').isVisible());
@@ -35,12 +35,69 @@ test('dashboard demo, scope form, report and mobile layout work in Chromium', { 
     await page.getByLabel('Assessment name').fill('Owned portal');
     await page.getByLabel('Authorized hosts').fill('app.example.test\napi.example.test');
     await page.getByLabel('Policy or authorization URL').fill('https://example.test/policy');
+    await page.getByRole('button', { name: 'Review scope & limits' }).click();
     await page.getByLabel('I reviewed the authorization', { exact: false }).check();
     await page.getByRole('button', { name: 'Start assessment' }).click();
     await page.waitForFunction(() => document.getElementById('page-title')?.textContent === 'Owned portal' && document.getElementById('run-status')?.textContent === 'completed');
     assert.deepEqual(requests, ['https://app.example.test/', 'https://api.example.test/']);
     assert.equal(await page.locator('#findings-list script').count(), 0, 'remote findings are rendered as text');
     await page.reload(); await page.waitForFunction(() => document.getElementById('page-title')?.textContent === 'Owned portal');
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); await app.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('saved scopes, drafts, preview invalidation and reversible archive work through the UI', { timeout: 60000 }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'anteater-workspace-ui-'));
+  const requests: string[] = [];
+  const service = new DashboardService(directory, async target => { requests.push(target); return { status: 200, signals: [] }; }, 1);
+  const app = await createDashboard(service, 0); const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+    await page.goto(app.origin); await page.getByRole('button', { name: 'Enable passive requests', exact: true }).click();
+    await page.getByRole('button', { name: 'New assessment', exact: true }).click();
+    await page.getByLabel('Assessment name').fill('Saved baseline');
+    await page.getByLabel('Authorized hosts').fill('APP.example.test\n\n*.example.test');
+    await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+    await page.waitForFunction(() => document.getElementById('draft-picker')?.querySelectorAll('option').length === 2);
+    await page.reload(); await page.getByRole('button', { name: 'New assessment', exact: true }).click();
+    await page.getByLabel('Saved draft').selectOption({ label: 'Saved baseline' });
+    assert.equal(await page.getByLabel('Authorized hosts').inputValue(), 'APP.example.test\n\n*.example.test');
+    assert.equal(await page.getByLabel('I reviewed the authorization', { exact: false }).isChecked(), false);
+    await page.getByLabel('Policy or authorization URL').fill('https://example.test/policy');
+    await page.getByRole('button', { name: 'Review scope & limits' }).click();
+    await page.locator('#form-error').waitFor({ state: 'visible' });
+    assert.match(await page.locator('#form-error').innerText(), /line 3/);
+    await page.getByLabel('Authorized hosts').fill('APP.example.test\nhttps://app.example.test/\napi.example.test');
+    await page.getByLabel('Excluded hosts').fill('api.example.test');
+    await page.getByLabel('Project name', { exact: true }).fill('Customer portal');
+    await page.getByRole('button', { name: 'Save project', exact: true }).click();
+    await page.waitForFunction(() => document.getElementById('project-picker')?.querySelectorAll('option').length === 2);
+    await page.getByRole('button', { name: 'Review scope & limits' }).click();
+    await page.locator('#scope-preview').waitFor({ state: 'visible' });
+    assert.match(await page.locator('#scope-preview').innerText(), /At most 1 requests/);
+    assert.match(await page.locator('#scope-preview').innerText(), /duplicate/);
+    await page.getByLabel('I reviewed the authorization', { exact: false }).check();
+    await page.getByLabel('Assessment name').fill('Final baseline');
+    assert.equal(await page.getByRole('button', { name: /Start assessment/ }).isDisabled(), true);
+    assert.equal(await page.getByLabel('I reviewed the authorization', { exact: false }).isChecked(), false);
+    await page.getByRole('button', { name: 'Review scope & limits' }).click();
+    await page.locator('#scope-preview').waitFor({ state: 'visible' });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    if (process.env.DASHBOARD_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.DASHBOARD_SCREENSHOT_DIR, 'anteater-scope-review-mobile.png'), fullPage: true });
+    await page.getByLabel('I reviewed the authorization', { exact: false }).check();
+    await page.getByRole('button', { name: /Start assessment/ }).click();
+    await page.waitForFunction(() => document.getElementById('run-status')?.textContent === 'completed');
+    assert.deepEqual(requests, ['https://app.example.test/']);
+    await page.getByRole('button', { name: 'Archive', exact: true }).click();
+    await page.getByRole('button', { name: 'Restore from archive', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Restore from archive', exact: true }).click();
+    await page.getByRole('button', { name: 'Archive', exact: true }).waitFor();
+    await page.setViewportSize({ width: 1440, height: 1050 });
+    await page.getByLabel('Find an assessment').fill('nonexistent');
+    assert.equal(await page.locator('#history button').count(), 0);
+    await page.getByLabel('Find an assessment').fill('Final baseline');
+    assert.equal(await page.locator('#history button').count(), 1);
     assert.deepEqual(errors, []);
   } finally { await browser.close(); await app.close(); await rm(directory, { recursive: true, force: true }); }
 });

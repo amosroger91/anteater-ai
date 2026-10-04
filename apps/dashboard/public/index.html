@@ -7,19 +7,19 @@
   <p class="side-caption">RESEARCH WORKSPACE</p>
   <div class="nav-item"><span aria-hidden="true">▦</span> Assessments <span id="history-count" class="nav-count">0</span></div>
   <div class="side-section"><span>RECENT ASSESSMENTS</span><button id="new-side" class="icon-button" aria-label="New assessment">+</button></div>
-  <div id="history" class="history"><p class="history-empty">Your assessments will appear here.</p></div>
+  <label class="history-search">Find an assessment<input id="history-search" type="search" placeholder="Search name or host"></label><label class="history-search">Project<select id="project-filter"><option value="">All projects</option></select></label><label class="archive-toggle"><input id="show-archived" type="checkbox"> Include archived</label><div id="history" class="history"><p class="history-empty">Your assessments will appear here.</p></div>
   <div class="control-box"><div class="control-title"><span id="control-dot" class="status-dot"></span><strong id="control-label">Live requests off</strong></div><p>Only explicitly reviewed targets can be assessed.</p><button id="toggle-live" class="control-button">Enable passive requests</button><small>Local session · resets on restart</small></div>
   <div class="local-label"><span class="tiny-dot"></span> Local workspace <span>v0.1</span></div>
 </aside>
 <main>
   <header class="topbar"><div>Workspace <span class="slash">/</span> <strong>Assessments</strong></div><span class="mode-tag">PASSIVE WEB CHECKS</span></header>
   <div class="workspace">
-    <div id="connection-error" class="notice error" role="alert" hidden></div>
+    <p id="service-health" class="service-health" role="status"></p><div id="connection-error" class="notice error" role="alert" hidden></div>
     <label class="mobile-history">Assessment history<select id="history-picker" aria-label="Assessment history"><option value="">No assessments yet</option></select></label>
     <div class="page-heading"><div><p class="eyebrow">ASSESSMENT OVERVIEW</p><h1 id="page-title">Know where you stand.</h1><p id="page-subtitle" class="subtitle">Review your web posture, one authorized target at a time.</p></div><button id="new-assessment" class="button primary"><span aria-hidden="true">+</span> New assessment</button></div>
     <section id="empty-state" class="empty-state"><div class="scope-illustration" aria-hidden="true"><div class="orbit"></div><span class="scope-cross">+</span><span class="scope-node one"></span><span class="scope-node two"></span></div><p class="eyebrow">START WITH A CLEAR SCOPE</p><h2>Your next assessment starts here.</h2><p>Enter the hosts you’re authorized to review.<br>Follow each check and turn observations into next steps.</p><div class="empty-actions"><button id="start-empty" class="button primary">Create an assessment <span aria-hidden="true">↗</span></button><button id="demo" class="button secondary">Explore a demo</button></div><div class="empty-features"><span>✓ Bounded HTTPS requests</span><span>✓ Visible coverage gaps</span><span>✓ Results saved locally</span></div></section>
     <section id="assessment-view" hidden>
-      <div class="run-strip"><div><span id="run-status" class="badge"></span><span id="run-meta"></span></div><div class="run-actions"><button id="stop-assessment" class="button danger small" hidden>Stop assessment</button><a id="download-report" class="button secondary small" href="#">Download report ↓</a></div></div>
+      <div class="run-strip"><div><span id="run-status" class="badge"></span><span id="run-meta"></span></div><div class="run-actions"><button id="stop-assessment" class="button danger small" hidden>Stop assessment</button><button id="archive-assessment" class="button secondary small">Archive</button><a id="download-report" class="button secondary small" href="#">Download report ↓</a></div></div>
       <div id="demo-notice" class="notice" hidden>Demo assessment · synthetic results. No target was contacted.</div>
       <div class="metrics"><article><span>Targets processed</span><div><strong id="metric-targets">0 / 0</strong><span class="metric-icon">◎</span></div><small id="metric-progress">Ready to begin</small></article><article><span>Observations to review</span><div><strong id="metric-findings">0</strong><span class="metric-icon amber">◈</span></div><small>Signals, not verified vulnerabilities</small></article><article><span>Checks completed</span><div><strong id="metric-checks">0</strong><span class="metric-icon">✓</span></div><small>Explicitly recorded executions</small></article><article><span>Coverage gaps</span><div><strong id="metric-gaps">0</strong><span class="metric-icon slate">◌</span></div><small>Skipped checks are never passes</small></article></div>
       <div class="progress-section"><div><strong>Assessment progress</strong><span id="progress-label">0%</span></div><progress id="progress" value="0" max="100" aria-label="Assessment progress"></progress></div>
@@ -29,6 +29,22 @@
     </section>
   </div>
 </main>
-<dialog id="assessment-dialog"><form id="assessment-form"><div class="dialog-heading"><div><p class="eyebrow">DEFINE THE SCOPE</p><h2>New assessment</h2></div><button type="button" id="close-dialog" class="close-button" aria-label="Close">×</button></div><p class="dialog-description">Run read-only checks on up to 25 exact hosts. One bounded HTTPS GET per host; redirects aren’t followed.</p><label>Assessment name<input name="name" placeholder="Customer portal · baseline review" maxlength="80" required></label><label>Authorized hosts<textarea name="targets" rows="4" placeholder="app.your-domain.com&#10;api.your-domain.com" required></textarea><small>One hostname per line. No wildcards, paths, or private IPs.</small></label><div class="form-row"><label>Policy or authorization URL<input name="sourceUrl" type="url" placeholder="https://…" required></label><label>Authorization expires<input name="expiresAt" type="datetime-local" required></label></div><label class="checkbox-row"><input name="reviewed" type="checkbox" required><span>I reviewed the authorization and confirm that every listed host permits these passive checks.</span></label><p class="form-note">This records your local review; it is not an authenticated organizational approval.</p><div id="form-error" class="notice error" role="alert" hidden></div><div class="dialog-footer"><span id="form-live-status"></span><button id="submit-assessment" class="button primary" type="submit">Start assessment →</button></div></form></dialog>
+<dialog id="assessment-dialog">
+<form id="assessment-form">
+  <div class="dialog-heading"><div><p class="eyebrow">DEFINE THE SCOPE</p><h2>New assessment</h2></div><button type="button" id="close-dialog" class="close-button" aria-label="Close">×</button></div>
+  <p class="dialog-description">Run read-only checks on up to 25 exact hosts. One bounded HTTPS GET per host; redirects aren’t followed.</p>
+  <div class="form-row"><label>Saved project<select id="project-picker"><option value="">New scope</option></select></label><label>Saved draft<select id="draft-picker"><option value="">Choose a draft</option></select></label></div>
+  <label>Assessment name<input name="name" placeholder="Customer portal · baseline review" maxlength="80" required></label>
+  <label>Authorized hosts<textarea name="targets" rows="4" placeholder="app.your-domain.com&#10;api.your-domain.com" required></textarea><small>One hostname per line. No wildcards, paths, or private IPs.</small></label>
+  <label>Excluded hosts<textarea name="excluded" rows="2" placeholder="legacy.your-domain.com"></textarea><small>Exact hosts to leave out of this assessment.</small></label>
+  <div class="form-row"><label>Policy or authorization URL<input name="sourceUrl" type="url" placeholder="https://…" required></label><label>Authorization expires<input name="expiresAt" type="datetime-local" required></label></div>
+  <div class="save-scope"><label>Project name<input id="project-name" maxlength="80" placeholder="Customer portal"></label><div class="save-actions"><button type="button" id="save-project" class="button secondary small">Save project</button><button type="button" id="save-draft" class="button secondary small">Save draft</button></div></div>
+  <button type="button" id="preview-assessment" class="button secondary">Review scope & limits</button>
+  <section id="scope-preview" class="scope-preview" aria-live="polite" hidden></section>
+  <label class="checkbox-row"><input name="reviewed" type="checkbox" required><span>I reviewed the authorization and confirm that every included host permits these passive checks.</span></label>
+  <p class="form-note">This records your local review; it is not an authenticated organizational approval.</p>
+  <div id="form-error" class="notice error" role="alert" hidden></div>
+  <div class="dialog-footer"><span id="form-live-status"></span><button id="submit-assessment" class="button primary" type="submit">Start assessment →</button></div>
+</form></dialog>
 <div id="toast" class="toast" role="status" hidden></div>
 </body></html>

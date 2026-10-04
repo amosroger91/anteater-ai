@@ -1,5 +1,14 @@
 # Validation history
 
+## Saved scopes and shared local service — 2026-10-03
+
+- Build and **145 unit tests passed**. New coverage includes canonical scope/exclusions, line errors, project revision conflicts, incomplete draft recovery, immutable run snapshots, duplicate submissions across restart, migration backups, invalid schema rejection, completion states, SSE reconnect, CLI reuse and storage failure.
+- **10 Chromium browser tests passed**, including saved projects/drafts, preview invalidation, exclusions, reversible archive, history search and mobile layout. Desktop and 390px screenshots inspected.
+- **15 reported PostgreSQL integration tests passed**, followed by idempotent fixture replay; detector gate **5/5**, zero fixture false positives.
+- `npm run test:dashboard-build` passed against compiled JavaScript, copied static assets and migrations, with the synthetic demo and live requests disabled. CI now includes this smoke check.
+- Local Windows / Node 24.13.0 validation. Remote Linux / Node 22 CI has not been run for these changes. No real assessment targets were contacted.
+- The new `assessment` CLI uses the same local dashboard API. The PostgreSQL worker queue, shared revocation and durable event log are not yet connected to that service.
+
 ## Dashboard and review hardening — 2026-10-02
 
 - TypeScript build and **137 unit tests passed**.
