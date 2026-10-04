@@ -43,7 +43,13 @@ export class CampaignService {
         assessment.status = 'interrupted'; assessment.finishedAt = new Date().toISOString();
         for (const target of assessment.targets) if (['running', 'queued'].includes(target.status)) { target.status = 'interrupted'; target.finishedAt = assessment.finishedAt; }
         await this.save(assessment);
-      } else if (raw.schemaVersion === undefined) await this.save(assessment);
+      } else {
+        // Older reports called mixed-success runs completed. Preserve their evidence,
+        // but use the same outcome rules as newly executed campaigns.
+        if (assessment.status === 'completed') assessment.status = assessment.targets.every(target => target.status === 'failed') ? 'failed'
+          : assessment.targets.some(target => ['failed', 'completed_with_gaps'].includes(target.status)) ? 'completed_with_gaps' : 'completed';
+        if (raw.schemaVersion === undefined || raw.status !== assessment.status) await this.save(assessment);
+      }
       this.assessments.set(assessment.id, assessment);
     }
   }

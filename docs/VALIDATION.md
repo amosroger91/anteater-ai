@@ -6,6 +6,8 @@
 - **10 Chromium browser tests passed**, including saved projects/drafts, preview invalidation, exclusions, reversible archive, history search and mobile layout. Desktop and 390px screenshots inspected.
 - **15 reported PostgreSQL integration tests passed**, followed by idempotent fixture replay; detector gate **5/5**, zero fixture false positives.
 - `npm run test:dashboard-build` passed against compiled JavaScript, copied static assets and migrations, with the synthetic demo and live requests disabled. CI now includes this smoke check.
+- Fresh local clone with a separate, initially empty npm cache: `npm ci`, build and compiled-dashboard smoke test passed. No pre-existing PostgreSQL or frontend build was needed.
+- Legacy mixed-success reports are normalized to `completed with gaps` on load, with original unversioned report backups retained; targeted migration/service tests passed after this correction.
 - Local Windows / Node 24.13.0 validation. Remote Linux / Node 22 CI has not been run for these changes. No real assessment targets were contacted.
 - The new `assessment` CLI uses the same local dashboard API. The PostgreSQL worker queue, shared revocation and durable event log are not yet connected to that service.
 

@@ -83,7 +83,14 @@ test('legacy migration backs up original bytes once and rejects unknown schema v
   try {
     const original = JSON.stringify({ id, name: 'Legacy', demo: false, status: 'running', createdAt: new Date().toISOString(), sourceUrl: input.sourceUrl, expiresAt: input.expiresAt, targets: [{ url: 'https://app.example.test/', status: 'queued', findings: [] }] });
     const path = join(directory, id + '.json'); await writeFile(path, original);
+    const partialId = randomUUID();
+    const partialPath = join(directory, partialId + '.json');
+    await writeFile(partialPath, JSON.stringify({ ...JSON.parse(original), id: partialId, status: 'completed', targets: [
+      { url: 'https://app.example.test/', status: 'completed', findings: [] },
+      { url: 'https://broken.example.test/', status: 'failed', error: 'timeout', findings: [] },
+    ] }));
     await new CampaignService(directory).init(); await new CampaignService(directory).init();
+    assert.equal(JSON.parse(await readFile(partialPath, 'utf8')).status, 'completed_with_gaps');
     assert.equal(await readFile(join(directory, id + '.legacy-backup.json'), 'utf8'), original);
     const migrated = JSON.parse(await readFile(path, 'utf8')); assert.equal(migrated.schemaVersion, 1); assert.equal(migrated.status, 'interrupted');
     await writeFile(path, JSON.stringify({ ...migrated, schemaVersion: 999 }));
