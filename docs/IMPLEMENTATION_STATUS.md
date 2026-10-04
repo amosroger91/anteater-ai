@@ -13,7 +13,7 @@ No assessment targets were contacted to generate or validate these reports. Repo
 
 | Ticket | Status | Commit(s) | Verification | Remaining limitation / next action |
 | --- | --- | --- | --- | --- |
-| B00 | verified | `c8fde77` | Build; 152 unit tests; 2 Chromium tests; 20 PostgreSQL integration tests; fixture replay; compiled-dashboard smoke test passed locally on Windows / Node 24.13.0. | Remote Linux CI not run for this working tree. |
+| B00 | verified | `c8fde77` | Build; 152 unit tests; 10 Chromium end-to-end tests; 20 PostgreSQL integration tests; fixture replay; compiled-dashboard smoke test passed locally on Windows / Node 24.13.0. | Remote Linux CI not run for this working tree. |
 | B01 | in_progress | `c8fde77` | Added a file snapshot repository boundary and migration 007; PostgreSQL tests validate idempotent migration, immutable policy rows, project/operator key scope, composite campaign/job links, and refusal to claim linked work with the legacy worker. | No PostgreSQL campaign repository or transactional start path is wired to UI/CLI; finish the durable repository/admission integration. |
 | B02 | not_started | — | — | See plan. |
 | B03 | not_started | — | — | See plan. |
@@ -44,7 +44,7 @@ No assessment targets were contacted to generate or validate these reports. Repo
 
 ## Last verification
 
-All commands ran serially against synthetic fixtures on Windows / Node 24.13.0. `npm run build`, `npm run test:dashboard-build`, `npx tsx --test --test-concurrency=1 tests/*.test.ts` (152 passed), `npx tsx --test --test-concurrency=1 tests/browser/dashboard.test.ts` (2 passed), and `npm run verify:local` (20 PostgreSQL tests plus fixture replay) passed. No remote CI or real target assessment was run.
+All commands ran serially on Windows / Node 24.13.0 with synthetic fixtures. `npm run build`, `npm run test:dashboard-build`, `npx tsx --test --test-concurrency=1 tests/*.test.ts` (152 passed), `npx tsx --test --test-concurrency=1 tests/browser/*.test.ts` (10 passed), and `npm run verify:local` (20 PostgreSQL tests plus fixture replay) passed. Dashboard screenshots were captured under `docs/screenshots/`. No remote CI or real target assessment was run.
 
 ## Decisions
 

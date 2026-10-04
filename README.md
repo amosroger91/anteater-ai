@@ -1,25 +1,65 @@
-# anteater-ai
+# Anteater
 
-A web-development-focused, scope-first foundation for authorized web and API security research with local AI.
+A local-first workspace for authorized web and API security research. Anteater combines a passive assessment dashboard, editable bounty-report drafts, a PostgreSQL-backed research worker, and controlled browser-testing modules. It is designed to make scope and evidence review visible; it does not promise findings, program acceptance, or bounty income.
 
 ## Overview
 
-Anteater stores reviewed program policy, assets, bounded jobs, observations and evidence metadata in PostgreSQL, then exports a readable Markdown workspace. The default runs a synthetic fixture. An explicitly enabled passive HTTPS adapter can collect from reviewed program manifests, propose fixed-path follow-ups, and record posture signals for operator review.
+Anteater currently has two separate execution paths. The local dashboard stores assessment history and report revisions on disk and is usable without a database. The worker pipeline uses PostgreSQL for scoped jobs, leases, rate reservations, observations and audit data. An additive campaign-schema foundation exists, but the dashboard and CLI assessment flow are not yet backed by that shared queue. The default demo is synthetic; live requests are disabled until an operator explicitly enables them.
 
 ## Local dashboard
 
-Run `npm run dashboard` and open **http://127.0.0.1:4317** for target entry, reviewed scope, assessment progress, per-target findings, coverage gaps and report downloads. No CSV, database, Docker or frontend build is required. Live requests start disabled; **Explore a demo** uses synthetic results only. See [dashboard instructions](docs/DASHBOARD.md).
+Install dependencies and start the local UI:
+
+```sh
+npm ci
+npm run dashboard
+```
+
+Then open **http://127.0.0.1:4317** for a form-based workflow to review scope, follow assessment progress, inspect per-target observations and prepare bounty-report drafts. The dashboard does not require CSV editing, PostgreSQL, Docker, a frontend build, or a hosted service. Live requests start disabled; **Explore a demo** uses synthetic results only. See [dashboard instructions](docs/DASHBOARD.md).
+
+## Screenshots
+
+These screenshots were captured by the Chromium end-to-end suite using the synthetic demo and test transports. They show no real target data.
+
+![Anteater dashboard showing assessment progress, coverage gaps, targets, and observations](docs/screenshots/anteater-dashboard-desktop.png)
+
+<p align="center">
+  <img src="docs/screenshots/anteater-report-mobile.png" alt="Mobile report editor with profile selection and editable draft fields" width="320">
+  <img src="docs/screenshots/anteater-report-readiness-mobile.png" alt="Mobile report readiness checklist and generated Markdown preview" width="320">
+</p>
+
+## Features
+
+| Area | What is implemented |
+| --- | --- |
+| Local assessment dashboard | Named projects and versioned scopes; recoverable drafts; exact-host exclusions; authorization source and expiry; scope-and-budget preview; explicit operator review; assessment history with search, project filter, archive and restore; live progress events; stop controls; storage/executor health. |
+| Passive web checks | At most 25 exact public hostnames per assessment. Each target receives one DNS-pinned HTTPS GET on port 443, strict certificate validation, a 10-second total deadline and bounded response capture. Redirects are recorded but not followed. Private, loopback and link-local addresses are blocked. |
+| Results and coverage | Per-target HTTP outcome, response metadata, observation signals, deterministic remediation suggestions and explicit check states. Skipped or unimplemented checks remain visible as coverage gaps; a signal is a candidate for review, not a verified vulnerability. |
+| Report studio | HackerOne, Bugcrowd and generic coordinated-disclosure profiles; Markdown, plain text, self-contained offline HTML and JSON exports; copy/download actions; editable title, summary, reproduction, expected behavior, impact and manual custom fields; saved local revisions with source-snapshot binding and conflict checks. Reports stay labeled drafts and require human review. |
+| Bounty-program inbox | Fetch one program at a time from the public scope dump, retain exclusions, manually review exact hosts, refresh scope and promote reviewed hosts as passive CSV entries. Fetching a program never grants scan permission. See [Bounty review inbox](#bounty-review-inbox). |
+| PostgreSQL worker | Scoped programs/assets, leased jobs with fencing and recovery, bounded retries, shared rate reservations, invocation-time authorization checks, atomic observation/audit writes, fixed-path follow-up admission, retention controls and workspace exports. This worker is separate from the dashboard campaign flow. |
+| Controlled browser research | Gated Playwright modules for isolated two-account tests, canonical-principal checks, negative controls, owner-resource replay, durable cleanup intents, optional encrypted generated test accounts and IMAP verification. These paths require separate configuration gates and owned test systems; they are not exposed by the passive dashboard. |
+| Research and analysis modules | Candidate discovery/admission adapters, OpenAPI and GraphQL inventory, web/API checks, source and infrastructure analyzers, deterministic finding/retest helpers, remediation notes, evidence utilities, audit, budgets, provenance and a local Ollama provider. Many modules are libraries and are not yet joined into one live campaign pipeline. |
+| Curated dependencies | 29 exact-commit-pinned upstream source/data repositories with curated paths and origin checks. A pin does not install or execute an upstream tool. See [Web dependency library](#web-dependency-library). |
+
+## Safety and product boundaries
+
+- Live requests and the PostgreSQL worker kill switch are off by default. Dashboard request enablement is process-local and resets on restart.
+- The dashboard is a single-operator loopback application. Its scope confirmation records operator input; it is not authenticated organizational approval or a team permission system.
+- Report generation makes no target requests and never uploads or submits to a platform. The JSON export contains observation metadata and hashes, not a full request/response transcript or attachment bundle. Best-effort redaction cannot guarantee arbitrary text is secret-free.
+- The dashboard history and report-draft files have separate storage and retention from PostgreSQL worker observations. The old CSV posture scanner, PostgreSQL worker and local dashboard are not one unified campaign scheduler.
+- Fixture and browser tests establish behavior in synthetic environments only. Owned-staging, independent egress, production recovery and real-program validation remain open work. See [readiness](docs/READINESS.md) and the [implementation ledger](docs/IMPLEMENTATION_STATUS.md).
 
 ## Architecture
 
 ```text
-Fixture/reviewed file -> validated policy + PostgreSQL -> concurrent leased jobs
-                                                       |
-                                      scope + kill switch + rate limits
-                                                       |
-                           fixture / bounded HTTPS GET -> durable observation
-                                                       |
-                  policy-filtered follow-ups + evidence + model -> Markdown export
+Local dashboard -> reviewed exact-host scope -> bounded HTTPS GET -> local history -> report draft
+      |                    |                         |                    |
+      +-- session         +-- expiry / exclusions   +-- no redirects     +-- human review only
+
+Reviewed worker manifest -> PostgreSQL queue -> lease / scope / rate gates -> worker adapter
+                                                                             |
+                                                         observation + audit + allowed follow-ups
 ```
 
 See [architecture](docs/ARCHITECTURE.md), [implemented improvements](docs/EXECUTION_IMPROVEMENTS.md), [model contract](docs/DETERMINISTIC_MODEL.md), and [readiness checklist](docs/READINESS.md).
@@ -95,11 +135,13 @@ Use a normal clone followed by `deps:sync`; recursive submodule cloning can down
 
 | In the current checkout | Still needed for production |
 | --- | --- |
+| Local form-based dashboard with saved projects/drafts, reviewed scope, progress, history, stop controls and editable report drafts | Shared PostgreSQL campaign service, team/reviewer identities, cross-process stop/revocation and managed history retention |
+| HackerOne, Bugcrowd and generic report profiles with Markdown, text, offline HTML and JSON exports; local revision history | Evidence attachment manifest, integrity/readiness review, durable submission/outcome records and report lifecycle integration |
 | Reviewed domain-list profile, root-job worker, bounded passive HTTPS collector and PostgreSQL leases | Authenticated policy approval, discovery-to-queue wiring, independent egress enforcement and scheduled revisits |
 | Opt-in Playwright research with two isolated accounts, identity checks, optional encrypted generated accounts and IMAP verification | Real owned-staging validation, role-aware credential service, account lifecycle, and verified browser/network isolation |
 | Configured owner-resource replay with negative controls and marker-based cleanup | Broader route/role coverage, live cleanup proof, persistent reviewer decisions and scheduled retests |
 | Eight passive posture coverage checks, a four-reference WSTG 4.2 subset, fixture gates, API inventory and offline analyzers | Broader methodology coverage and integration of checks/inventory into the live campaign |
-| Deterministic finding/retest helpers, remediation text, evidence hashes and audit data | End-to-end finding lifecycle, evidence key management, human identity and impact-ranked reports |
+| Deterministic finding/retest helpers, remediation text, evidence hashes and audit data | End-to-end finding lifecycle, evidence key management, human identity and impact-ranked triage |
 | 29 pinned source/data dependencies and update checks | Reviewed runtime tool adapters, authenticated MCP, operational monitoring and recovery drills |
 
 The checked-in Kali container is an inert, network-disabled boundary demonstration. `ENABLE_PASSIVE_HTTP=true` enables only the reviewed read-only worker adapter. Application research additionally requires `ENABLE_APPLICATION_RESEARCH=true`; login, signup, resource creation and replay require `ALLOW_ACTIVE_TESTING=true` plus explicit profile paths. These switches do not replace host/container egress isolation. Findings submission remains a human-reviewed future stage.
@@ -147,10 +189,10 @@ Without Docker, `npm run verify:local` starts temporary PostgreSQL, runs integra
 | ACCOUNT_KEY | No | Unset; 32-byte hex key required only for generated test accounts |
 | PROGRAM_SOURCE | No | `fixture`; set `file` for reviewed manifests |
 | PROGRAMS_FILE | File provider | Path to reviewed JSON; see `fixtures/programs.example.json` |
-| MAX_RESPONSE_BYTES | No | `65536`; capture limit, bounded 1024â€“1048576 |
+| MAX_RESPONSE_BYTES | No | `65536`; capture limit, bounded from 1,024 to 1,048,576 |
 | MAX_CONCURRENT_JOBS | No | `1`; same setting required across all workers |
 | MAX_REQUEST_RATE | No | `1`; global invocations/second, bounded to 10 |
-| JOB_LEASE_SECONDS | No | `30`; bounded 5â€“300 |
+| JOB_LEASE_SECONDS | No | `30`; bounded from 5 to 300 |
 | PROGRAMS_DIR | No | `programs`; trusted operator-owned export directory |
 | OLLAMA_URL | No | `http://127.0.0.1:11434`; loopback only |
 | LLM_MODEL | No | `qwen3:4b`; operator-selectable model |
@@ -161,15 +203,21 @@ Without Docker, `npm run verify:local` starts temporary PostgreSQL, runs integra
 
 | Command | Purpose |
 | --- | --- |
+| `npm run build` | Compile TypeScript and copy dashboard assets and migrations |
+| `npm run start` | Serve the compiled dashboard locally |
+| `npm run dashboard` | Serve the dashboard from TypeScript during development |
 | `npm run check` | Compile TypeScript and run unit tests |
 | `npm run test:integration` | Test a running PostgreSQL in an isolated schema |
 | `npm run verify:local` | Temporary native PostgreSQL, integration tests, fixture replay |
+| `npm run test:dashboard-build` | Smoke-test the compiled dashboard, assets, migrations and synthetic demo |
+| `npm run test:browser` | Chromium end-to-end tests for dashboard/report workflows and the controlled research lab |
 | `npm run db:migrate` | Apply ordered, idempotent schema migrations |
 | `npm run demo` | One bounded fixture iteration; explicit kill-switch override required |
 | `npm run worker -- --once` | Seed reviewed root jobs and process one bounded batch with lease heartbeats |
 | `npm run research -- --domains=<file> --profile=<file>` | Queue the submitted domains using a reviewed research profile; application research must be explicitly enabled |
-| `npm run test:browser` | Chromium integration tests against the synthetic research lab |
+| `npm run assessment -- <command>` | List, preview, start or cancel assessments through the local dashboard API |
 | `npm run models:inspect` | Detect NVIDIA VRAM and display conservative setup guidance |
+| `npm run models:setup` | Inspect or configure the local model provider |
 | `npm run deps:list` | List web dependencies and committed revisions |
 | `npm run deps:check` | Verify catalog, origins, branches and gitlinks |
 | `npm run deps:sync` | Fetch pinned source and selected data without executing it |
@@ -180,6 +228,10 @@ Without Docker, `npm run verify:local` starts temporary PostgreSQL, runs integra
 | `npm run bounty:list` | Show inbox assets and their review state |
 | `npm run posture:scan -- <csv> --policy=<json>` | Policy-bound posture scan; one URL per row |
 | `npm run posture:check -- <url>` | Read-only check of one host, outside the CSV |
+| `npm run coverage:report` | Export explicit check execution and coverage gaps |
+| `npm run cleanup:list` | Inspect unresolved resource-cleanup obligations |
+| `npm run retention:sweep` | Apply configured retention to eligible PostgreSQL worker records |
+| `npm run gate` | Run the synthetic vulnerable/patched detector fixture gate |
 
 Without `--once`, the worker drains follow-ups/retries and sweeps pending exports until stopped. It loads manifests once at startup. Completed targets are not periodically rescanned; new reviewed revisions produce new jobs. The `research` entry point scans only submitted roots; discovery adapters are not yet wired into it. A profile's `reviewed: true` field is operator input, not authenticated proof of approval. See [reviewed manifest setup](docs/OPERATIONS.md#reviewed-program-worker). Authenticated HTTP/MCP control remains future work.
 
@@ -188,13 +240,22 @@ Without `--once`, the worker drains follow-ups/retries and sweeps pending export
 ```text
 apps/orchestrator/       fixture demo and concurrent worker
 packages/application-research/ bounded browser sessions, accounts, mailbox and ownership replay
+packages/campaigns/     local assessment service/repository and campaign contracts
+packages/reporting/     deterministic report generation, renderers and local revisions
 packages/discovery/     candidate discovery, scope admission and adapters
+packages/api-inventory/ OpenAPI and GraphQL operation inventory
 packages/coverage/      WSTG/ASVS check registry and coverage reports
 packages/findings/      replay contracts, finding states, chains and retest helper
+packages/evidence/      bounded evidence handling and integrity metadata
+packages/source-analysis/ owned-code route and risky-pattern analyzers
 packages/scope-engine/  conservative deterministic authorization
 packages/research-state/ PostgreSQL jobs, leases, rate limits, Markdown outbox
 packages/bounty-providers/ fixture and reviewed manifest providers
 packages/web-executor/  bounded HTTPS collector and deterministic follow-ups
+packages/web-checks/    registered web posture and API checks
+packages/remediation/   deterministic fix guidance
+packages/audit/         structured audit chain
+packages/operations/    stop, retention and operational decision helpers
 scripts/bounty-inbox.ts  one-program review queue; does not feed the scanner directly
 scripts/posture-scan.ts  CSV posture runner for operator-listed URLs
 packages/llm/           local provider interface, Ollama adapter, fixture model

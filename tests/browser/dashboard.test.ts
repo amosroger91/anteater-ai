@@ -48,7 +48,12 @@ test('dashboard demo, scope form, report and mobile layout work in Chromium', { 
     assert.match((await markdownDownload).suggestedFilename(), /-bugcrowd\.md$/);
     await page.setViewportSize({ width:390, height:844 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    if (process.env.DASHBOARD_SCREENSHOT_DIR) await page.screenshot({ path:join(process.env.DASHBOARD_SCREENSHOT_DIR, 'anteater-report-mobile.png') });
+    if (process.env.DASHBOARD_SCREENSHOT_DIR) {
+      await page.locator('#report-dialog').evaluate(dialog => { dialog.scrollTop = 0; });
+      await page.screenshot({ path:join(process.env.DASHBOARD_SCREENSHOT_DIR, 'anteater-report-mobile.png') });
+      await page.locator('.report-readiness').scrollIntoViewIfNeeded();
+      await page.screenshot({ path:join(process.env.DASHBOARD_SCREENSHOT_DIR, 'anteater-report-readiness-mobile.png') });
+    }
     await page.getByRole('button', { name:'Close report', exact:true }).click();
     await page.setViewportSize({ width:1440, height:1050 });
     if (process.env.DASHBOARD_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.DASHBOARD_SCREENSHOT_DIR, 'anteater-dashboard-desktop.png'), fullPage: true });
