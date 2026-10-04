@@ -1,5 +1,13 @@
 # Validation history
 
+## Automated bounty-report drafts and campaign foundation — 2026-10-04
+
+- `npm run build` and `npm run test:dashboard-build` passed. The compiled dashboard smoke test confirmed copied assets, migrations, local session behavior and the synthetic demo.
+- **152 unit tests passed** serially. New report coverage checks all three profiles and four export formats, completed-run and observation selection, source/evidence hashes, demo labeling, text/HTML injection handling, best-effort redaction, local revision persistence, source binding and stale-revision conflicts. Repository snapshot validation/restart recovery tests also passed.
+- **2 Chromium browser tests passed** serially. The dashboard report flow opened an observation, edited and saved a revision, reopened saved versions, downloaded a report and rendered at desktop/mobile sizes.
+- **20 temporary PostgreSQL integration tests passed**, followed by idempotent fixture replay. Migration 007 and its project/policy/campaign/job relationship constraints passed. Jobs attached to a campaign are deliberately excluded from legacy worker claims until campaign-aware authorization and stop handling are integrated.
+- Validation used Windows / Node 24.13.0 and synthetic fixtures. No real assessment target, external report platform or remote Linux CI was used. Report output stays a draft: the operator must establish current eligibility, independently reproduce, demonstrate impact and review/redact evidence. The local report revision store is not a multi-process/PostgreSQL persistence contract.
+
 ## Saved scopes and shared local service — 2026-10-03
 
 - Build and **145 unit tests passed**. New coverage includes canonical scope/exclusions, line errors, project revision conflicts, incomplete draft recovery, immutable run snapshots, duplicate submissions across restart, migration backups, invalid schema rejection, completion states, SSE reconnect, CLI reuse and storage failure.
