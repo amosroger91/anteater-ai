@@ -52,6 +52,7 @@ export class Jobs {
           JOIN assets a ON a.id=candidate.asset_id AND a.program_id=candidate.program_id AND a.active=true
           JOIN scope_rules s ON s.program_id=candidate.program_id
           WHERE candidate.attempts<candidate.max_attempts
+            AND NOT EXISTS (SELECT 1 FROM campaign_job_links cjl WHERE cjl.job_id=candidate.id)
             AND candidate.policy_revision=s.policy->>'revision'
             AND ((candidate.status='queued' AND candidate.available_at<=now()) OR (candidate.status='running' AND candidate.lease_until<=now()))
           ORDER BY candidate.created_at FOR UPDATE OF candidate SKIP LOCKED LIMIT 1)

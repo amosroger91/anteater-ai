@@ -1032,3 +1032,15 @@ label small,.form-note {
 #form-error p { margin:8px 0 0; }
 #assessment-form select { width:100%; padding:11px; border:1px solid #d8e3df; border-radius:7px; background:white; color:#213b36; }
 @media (max-width:760px) { .run-strip, .run-actions { flex-wrap:wrap; gap:10px; } .history-search, .archive-toggle { margin-left:0; margin-right:0; } }
+#report-dialog { width:min(850px, calc(100vw - 32px)); padding:24px; }
+#report-dialog label { display:block; font-size:13px; font-weight:600; margin:18px 0; }
+#report-profile, #report-content { display:block; width:100%; margin-top:8px; padding:12px; border:1px solid #bccfc8; border-radius:8px; background:white; }
+#report-content { font:12px/1.6 ui-monospace, monospace; resize:vertical; min-height:250px; }
+.report-readiness { padding:14px; margin-top:20px; background:#fff4d9; border-radius:8px; font-size:13px; }
+.report-readiness li { margin:8px 0; }
+.report-downloads { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px; }
+.finding .button { margin-top:12px; }
+#report-editor { margin-top:18px; padding:14px; border:1px solid #bccfc8; border-radius:8px; }
+#report-editor input, #report-editor textarea, #report-version { width:100%; padding:10px; border:1px solid #bccfc8; border-radius:6px; background:white; }
+.report-custom-field { border-top:1px solid #d8e3df; padding:8px 0; }
+#report-save-status { font-size:13px; }

@@ -46,5 +46,27 @@
   <div id="form-error" class="notice error" role="alert" hidden></div>
   <div class="dialog-footer"><span id="form-live-status"></span><button id="submit-assessment" class="button primary" type="submit">Start assessment →</button></div>
 </form></dialog>
+<dialog id="report-dialog" aria-labelledby="report-heading">
+  <div class="dialog-heading"><div><p class="eyebrow">AUTOMATED REPORT DRAFT</p><h2 id="report-heading">Prepare a report</h2></div><button type="button" id="close-report" class="close-button" aria-label="Close report">×</button></div>
+  <p>Generate a focused draft from this observation. Complete the evidence and demonstrated impact before submitting through the program’s own form.</p>
+  <label>Report profile<select id="report-profile"><option value="hackerone">HackerOne</option><option value="bugcrowd">Bugcrowd</option><option value="generic">Generic disclosure</option></select></label>
+  <label>Saved revision<select id="report-version"><option value="">Latest draft</option></select></label>
+  <details id="report-editor"><summary>Add your reproduction and impact</summary>
+    <p>These additions are labeled as researcher-provided. Save to include them in exports. Previous revisions are retained.</p>
+    <label>Report title<input id="report-edit-title" maxlength="240" placeholder="Specific boundary violation and affected workflow"></label>
+    <label>Summary<textarea id="report-edit-summary" rows="3" maxlength="4000"></textarea></label>
+    <label>Reproduction steps<textarea id="report-edit-steps" rows="5" maxlength="8000"></textarea></label>
+    <label>Expected behavior<textarea id="report-edit-expected" rows="3" maxlength="4000"></textarea></label>
+    <label>Demonstrated impact<textarea id="report-edit-impact" rows="3" maxlength="4000"></textarea></label>
+    <div id="report-custom-fields"></div><button type="button" id="add-report-field" class="button secondary small">Add program field</button>
+    <p id="report-save-status" role="status">No saved edits.</p>
+    <button type="button" id="save-report-draft" class="button primary">Save report revision</button>
+    <button type="button" id="discard-report-edits" class="button secondary">Discard unsaved edits</button>
+  </details>
+  <details class="report-readiness" open><summary>Required before submission</summary><ul id="report-checklist"></ul></details>
+  <label>Generated Markdown<textarea id="report-content" rows="15" readonly spellcheck="false"></textarea></label>
+  <div id="report-downloads" class="report-downloads"></div>
+  <button id="copy-report" type="button" class="button primary">Copy Markdown</button>
+</dialog>
 <div id="toast" class="toast" role="status" hidden></div>
 </body></html>

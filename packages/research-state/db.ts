@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 
 export const connect = (connectionString: string) => new pg.Pool({ connectionString, max: 5, connectionTimeoutMillis: 5000 });
 
-const migrationFiles = ['001_initial.sql', '002_hardening.sql', '003_execution_depth.sql', '004_application_research.sql', '005_ops.sql', '006_cleanup.sql'];
+const migrationFiles = ['001_initial.sql', '002_hardening.sql', '003_execution_depth.sql', '004_application_research.sql', '005_ops.sql', '006_cleanup.sql', '007_campaign_foundation.sql'];
 
 export async function migrate(pool: pg.Pool) {
   const client = await pool.connect();

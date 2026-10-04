@@ -1,5 +1,3 @@
-import { copyFile, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { z } from 'zod';
@@ -8,6 +6,7 @@ import { executePassiveHttp, type PassiveOptions } from '../web-executor/index.j
 import { coverageForTarget } from '../coverage/index.js';
 import { remediationFor } from '../remediation/index.js';
 
+import { FileCampaignRepository, type CampaignRepository } from './repository.js';
 import { AssessmentInput, AssessmentSchema, CampaignError, DraftFields, WorkspaceSchema, parse, prepareScope, type Assessment, type Workspace } from './contracts.js';
 export { AssessmentInput, type Assessment, type Target } from './contracts.js';
 type Executor = (target: string, options: PassiveOptions) => Promise<Record<string, unknown>>;
@@ -25,20 +24,16 @@ export class CampaignService {
   private pendingKeys = new Map<string, { hash: string; promise: Promise<string> }>();
   private listeners = new Set<() => void>();
   private revision = 0;
-  constructor(readonly directory: string, private executor: Executor = executePassiveHttp, private delayMs = 1100) {}
+  private repository: CampaignRepository;
+  constructor(readonly directory: string, private executor: Executor = executePassiveHttp, private delayMs = 1100, repository?: CampaignRepository) {
+    this.repository = repository ?? new FileCampaignRepository(directory);
+  }
   async init() {
-    await mkdir(this.directory, { recursive: true, mode: 0o700 });
-    try { this.workspace = WorkspaceSchema.parse(JSON.parse(await readFile(join(this.directory, 'workspace.json'), 'utf8'))); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('invalid_workspace_file'); }
-    const names = (await readdir(this.directory)).filter(name => /^[a-f0-9-]{36}\.json$/.test(name));
-    if (names.length > 100) throw new Error('assessment_history_limit');
-    for (const name of names) {
-      const raw = JSON.parse(await readFile(join(this.directory, name), 'utf8'));
-      const assessment = AssessmentSchema.parse(raw);
-      if (assessment.id + '.json' !== name) throw new Error('invalid_assessment_file');
-      if (raw.schemaVersion === undefined) {
-        await copyFile(join(this.directory, name), join(this.directory, `${assessment.id}.legacy-backup.json`), 1).catch(error => { if (error.code !== 'EEXIST') throw error; });
-      }
+    const snapshot = await this.repository.initialize();
+    this.workspace = WorkspaceSchema.parse(snapshot.workspace);
+    for (const value of snapshot.assessments) {
+      const assessment = AssessmentSchema.parse(value);
+      const previousStatus = assessment.status;
       if (['running', 'queued', 'stopping'].includes(assessment.status)) {
         assessment.status = 'interrupted'; assessment.finishedAt = new Date().toISOString();
         for (const target of assessment.targets) if (['running', 'queued'].includes(target.status)) { target.status = 'interrupted'; target.finishedAt = assessment.finishedAt; }
@@ -48,7 +43,7 @@ export class CampaignService {
         // but use the same outcome rules as newly executed campaigns.
         if (assessment.status === 'completed') assessment.status = assessment.targets.every(target => target.status === 'failed') ? 'failed'
           : assessment.targets.some(target => ['failed', 'completed_with_gaps'].includes(target.status)) ? 'completed_with_gaps' : 'completed';
-        if (raw.schemaVersion === undefined || raw.status !== assessment.status) await this.save(assessment);
+        if (previousStatus !== assessment.status) await this.save(assessment);
       }
       this.assessments.set(assessment.id, assessment);
     }
@@ -208,20 +203,14 @@ export class CampaignService {
   private async save(assessment: Assessment) {
     assessment.updatedAt = new Date().toISOString();
     const validated = AssessmentSchema.parse(assessment);
-    const path = join(this.directory, assessment.id + '.json');
-    const temporary = path + '.tmp';
-    try {
-      await writeFile(temporary, JSON.stringify(validated, null, 2), { mode: 0o600 });
-      await rename(temporary, path);
-    } catch (error) { this.storageFailed(); throw error; }
+    try { await this.repository.saveAssessment(validated); }
+    catch (error) { this.storageFailed(); throw error; }
     this.changed();
   }
   private async saveWorkspace(value: Workspace) {
     const parsed = WorkspaceSchema.parse(value);
-    const path = join(this.directory, 'workspace.json'), temporary = path + '.tmp';
-    try {
-      await writeFile(temporary, JSON.stringify(parsed, null, 2), { mode: 0o600 }); await rename(temporary, path);
-    } catch (error) { this.storageFailed(); throw error; }
+    try { await this.repository.saveWorkspace(parsed); }
+    catch (error) { this.storageFailed(); throw error; }
     this.workspace = parsed; this.changed();
   }
 }

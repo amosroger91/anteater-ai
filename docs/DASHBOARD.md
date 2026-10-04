@@ -69,3 +69,11 @@ After a crash, unfinished runs are marked **interrupted** instead of silently re
 - Storage errors require checking permissions and free disk space, then restarting after repair. Disabling requests is not a substitute for fixing persistence.
 - Back up the whole data directory while the service is stopped, including `workspace.json` and migration backups. Restoring an old backup can forget newer submission keys; inspect existing results before rerunning work.
 - The server remains a single-operator local application. PostgreSQL queue integration, cross-process cancellation and retention, durable event replay, and team access controls are later milestones.
+
+## Automated report drafts
+
+Each completed observation has **Prepare report**. Select HackerOne, Bugcrowd or generic disclosure, inspect the generated Markdown and download `.md`, `.txt`, self-contained `.html`, or a structured `.json` evidence manifest. **Copy Markdown** prepares text for the program’s own report form. Generation makes no new target requests and never submits a report.
+
+These are deterministic drafts, not automatic vulnerability verification. Passive signals lack demonstrated impact and a complete reproduction transcript; the checklist explicitly asks for missing evidence and current program requirements. Synthetic demo exports are labeled DO NOT SUBMIT. Best-effort redaction removes common credentials/tokens but cannot guarantee arbitrary content is secret-free. Review before sharing. The original whole-assessment JSON download remains available.
+
+Drafts contain stable observation references, a source snapshot digest and a digest of the redacted observation metadata. Response-body hashes do not substitute for an actual transcript. Persistent report editing, program custom fields, attachment bundles, approval and submission tracking remain later report-studio slices.

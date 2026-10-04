@@ -1,6 +1,7 @@
 const $ = id => document.getElementById(id);
 let state = { enabled: false, active: null, assessments: [] };
 let selectedId, selectedTarget, lastState = '', toastTimer;
+let reportSelection, reportRequest = 0, reportMeta, reportDirty = false, reportSaving = false;
 let project, draft, previewed = false, submissionKey = crypto.randomUUID(), submitting = false, streamConnected = false;
 const names = { 'transport.encryption':'HTTPS transport', 'tls.protocol':'TLS protocol audit', 'tls.certificate':'Certificate audit', 'headers.hsts':'Strict transport security', 'headers.csp':'Content security policy', 'headers.baseline':'Security headers', 'headers.disclosure':'Version disclosure', 'cookies.attributes':'Cookie attributes' };
 const humanize = value => String(value).replaceAll('_', ' ');
@@ -61,7 +62,7 @@ function render() {
   $('download-report').href = `/api/assessments/${run.id}/report`;
   $('stop-assessment').hidden = state.active !== run.id;
   const processed = run.targets.filter(target => !['queued','running'].includes(target.status)).length;
-  const findings = run.targets.flatMap(target => target.findings.map(finding => ({ ...finding, target:target.url })));
+  const findings = run.targets.flatMap((target, targetIndex) => target.findings.map((finding, findingIndex) => ({ ...finding, target:target.url, targetIndex, findingIndex })));
   const checks = run.targets.reduce((total, target) => total + (target.coverage?.executed ?? 0), 0);
   const gaps = run.targets.reduce((total, target) => total + (target.coverage?.gaps ?? 8), 0);
   const percent = Math.round(processed / run.targets.length * 100);
@@ -98,7 +99,10 @@ function render() {
   for (const finding of filtered) {
     const row = node('article', undefined, 'finding'); const content = node('div');
     content.append(node('h3', humanize(finding.code)), node('small', finding.target), node('p', finding.detail), node('p', `Next step: ${finding.fix}`, 'fix'));
-    row.append(badge(finding.severity), content); results.append(row);
+    const prepare = node('button', 'Prepare report', 'button secondary small');
+    prepare.disabled = ['queued','running','stopping'].includes(run.status);
+    prepare.addEventListener('click', () => { reportSelection = { id:run.id, target:finding.targetIndex, finding:finding.findingIndex }; $('report-version').value = ''; reportDirty = false; $('report-dialog').showModal(); void loadReport(); });
+    content.append(prepare); row.append(badge(finding.severity), content); results.append(row);
   }
   $('scope-description').textContent = `Authorization source: ${run.sourceUrl} · Expires ${date(run.expiresAt)} · Exact listed hosts only.${run.projectName ? ` Project: ${run.projectName}, revision ${run.projectRevision}.` : ''} Excluded: ${(run.excluded || []).map(url => new URL(url).hostname).join(', ') || 'None'}.`;
 }
@@ -233,3 +237,69 @@ events.onerror = () => { streamConnected = false; void refresh(true); };
 setInterval(() => { if (!streamConnected) void refresh(); else if (state.active) render(); }, 1000);
 // Periodic snapshots also recover if a proxy silently drops an event stream.
 setInterval(() => { void refresh(); }, 15000);
+
+async function loadReport() {
+  if (!reportSelection) return;
+  const request = ++reportRequest; setReportBusy(true);
+  const { id, target, finding } = reportSelection;
+  const path = `/api/assessments/${id}/reports/${target}/${finding}?profile=${encodeURIComponent($('report-profile').value)}${$('report-version').value ? '&revision=' + $('report-version').value : ''}`;
+  reportMeta = undefined; $('save-report-draft').disabled = true; $('report-content').value = 'Generating draft…'; $('report-downloads').replaceChildren(); $('report-checklist').replaceChildren(); $('copy-report').disabled = true;
+  try {
+    const result = await api(path); if (request !== reportRequest) return;
+    $('report-content').value = result.markdown; $('copy-report').disabled = false;
+    reportMeta = { expectedRevision:result.latestRevision, sourceSnapshotSha256:result.report.sourceSnapshotSha256 };
+    $('report-version').replaceChildren(node('option', 'Latest draft')); $('report-version').firstChild.value = '';
+    for (const version of result.versions) { const option = node('option', `Revision ${version.revision} · ${date(version.savedAt)}`); option.value = String(version.revision); $('report-version').append(option); }
+    $('report-version').value = new URL(path, location.origin).searchParams.get('revision') || '';
+    for (const field of ['title','summary','steps','expected','impact']) $('report-edit-' + field).value = result.draft?.edits[field] || '';
+    $('report-custom-fields').replaceChildren(); for (const field of result.draft?.edits.customFields || []) addReportField(field);
+    reportDirty = false; $('save-report-draft').disabled = false; $('report-profile').disabled = false; $('report-version').disabled = false;
+    $('report-save-status').textContent = result.stale ? 'Source changed. Review these edits before saving a new revision.' : result.draft ? `Showing saved revision ${result.draft.revision}. Exports include these saved edits.` : 'No saved edits. Exports use the automatic draft.';
+    for (const blocker of result.report.blockers) $('report-checklist').append(node('li', blocker));
+    for (const [format, label] of [['markdown','Markdown (.md)'],['text','Plain text (.txt)'],['html','HTML review copy'],['json','JSON evidence manifest']]) {
+      const link = node('a', label, 'button secondary small'); link.href = path + `&format=${format}`; $('report-downloads').append(link);
+    }
+  } catch (error) { if (request === reportRequest) $('report-content').value = `Unable to generate report: ${error.message}`; }
+  finally { if (request === reportRequest) { setReportBusy(false); $('save-report-draft').disabled = !reportMeta; } }
+}
+$('report-profile').addEventListener('change', () => { $('report-version').value = ''; void loadReport(); });
+$('report-version').addEventListener('change', () => { void loadReport(); });
+$('close-report').addEventListener('click', () => { if (!reportDirty && !reportSaving) $('report-dialog').close(); else toast('Save this report revision before closing to keep your edits.'); });
+$('report-dialog').addEventListener('cancel', event => { if (reportDirty || reportSaving) { event.preventDefault(); toast('Save this report revision before closing to keep your edits.'); } });
+$('report-dialog').addEventListener('close', () => { reportRequest++; reportSelection = undefined; });
+$('copy-report').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText($('report-content').value); toast('Draft copied. Review evidence, impact and program requirements before submission.'); }
+  catch { $('report-content').focus(); $('report-content').select(); toast('Select and copy the draft using your keyboard.'); }
+});
+
+function reportChanged() {
+  reportDirty = true; $('report-profile').disabled = true; $('report-version').disabled = true;
+  $('report-save-status').textContent = 'Unsaved edits. Save a revision to update the preview and exports.';
+  $('report-downloads').replaceChildren(); $('copy-report').disabled = true;
+}
+function addReportField(field = { name:'', value:'' }) {
+  if ($('report-custom-fields').children.length >= 10) { toast('A report can have up to 10 program fields.'); return; }
+  const row = node('div', undefined, 'report-custom-field');
+  const nameLabel = node('label', 'Program field name'), name = node('input'); name.maxLength = 80; name.value = field.name; name.dataset.field = 'name'; nameLabel.append(name);
+  const valueLabel = node('label', 'Program field value'), value = node('textarea'); value.maxLength = 2000; value.rows = 2; value.value = field.value; value.dataset.field = 'value'; valueLabel.append(value);
+  const remove = node('button', 'Remove field', 'button secondary small'); remove.type = 'button'; remove.addEventListener('click', () => { row.remove(); reportChanged(); });
+  row.append(nameLabel, valueLabel, remove); $('report-custom-fields').append(row);
+}
+$('add-report-field').addEventListener('click', () => { addReportField(); reportChanged(); });
+$('report-editor').addEventListener('input', reportChanged);
+$('save-report-draft').addEventListener('click', async () => {
+  if (!reportSelection || !reportMeta || reportSaving) return;
+  const edits = Object.fromEntries(['title','summary','steps','expected','impact'].map(field => [field, $('report-edit-' + field).value]));
+  edits.customFields = [...$('report-custom-fields').children].map(row => ({ name:row.querySelector('[data-field="name"]').value, value:row.querySelector('[data-field="value"]').value }));
+  const { id, target, finding } = reportSelection;
+  reportSaving = true; setReportBusy(true); $('report-profile').disabled = true; $('report-version').disabled = true;
+  try {
+    await api(`/api/assessments/${id}/reports/${target}/${finding}?profile=${encodeURIComponent($('report-profile').value)}`, { ...reportMeta, edits });
+    reportDirty = false; $('report-version').value = ''; await loadReport(); toast('Report revision saved. Human review is still required before submission.');
+  } catch (error) { $('report-save-status').textContent = `Could not save: ${error.message}. Your edits remain in this form.`; }
+  finally { reportSaving = false; setReportBusy(false); $('save-report-draft').disabled = !reportMeta; }
+});
+window.addEventListener('beforeunload', event => { if (reportDirty || reportSaving) { event.preventDefault(); event.returnValue = ''; } });
+
+function setReportBusy(busy) { for (const control of $('report-editor').querySelectorAll('input,textarea,button')) control.disabled = busy; }
+$('discard-report-edits').addEventListener('click', () => { if (!reportSaving) { reportDirty = false; $('report-version').value = ''; void loadReport(); } });
