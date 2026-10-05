@@ -25,6 +25,11 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
 
 export interface Alert { code: string; value: number; threshold: number }
 
+export function netEconomics(input: { paid: number; humanHours: number; hourlyRate: number; infra: number }) {
+  const labor = input.humanHours * input.hourlyRate;
+  return { paid: input.paid, labor, infra: input.infra, net: input.paid - labor - input.infra };
+}
+
 export function computeAlerts(snapshot: FleetSnapshot, thresholds: Thresholds = DEFAULT_THRESHOLDS): Alert[] {
   const alerts: Alert[] = [];
   for (const key of Object.keys(thresholds) as (keyof Thresholds)[]) {
