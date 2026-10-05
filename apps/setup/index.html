@@ -175,13 +175,10 @@
             <dt>Kill switch</dt><dd>Stays on</dd>
           </dl>
           <p>${ready} No target is contacted by saving.</p>
-          <p class="help">When you are watching an owned lab, start one bounded pass from a shell. Policy still has to allow the host.</p>
-          <pre>$env:GLOBAL_KILL_SWITCH = 'false'
-$env:ENABLE_PASSIVE_HTTP = 'true'
-npm run worker -- --once</pre>
+          <p class="help">Saving opens the scanner and starts the local fixture scan. That scan does not contact a target.</p>
           <div class="actions">
             <button class="secondary" id="back" type="button">Back</button>
-            <button class="primary" id="save" type="button">Save on this machine</button>
+            <button class="primary" id="save" type="button">Save and open the scanner</button>
           </div>
           <p id="saved" class="ok" hidden>Saved. Secrets stay in secrets/ and are not written to the repository.</p>`;
       }
@@ -269,9 +266,7 @@ npm run worker -- --once</pre>
       state.mailboxPassword = '';
       state.clearHackeroneToken = false;
       state.clearMailboxPassword = false;
-      render();
-      const saved = document.querySelector('#saved');
-      if (saved) saved.hidden = false;
+      location.assign('/run');
     }
 
     function messageFor(code) {

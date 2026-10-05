@@ -22,7 +22,7 @@ See [architecture](docs/ARCHITECTURE.md), [implemented improvements](docs/EXECUT
 
 ## Setup
 
-Run `npm run setup`. Your browser opens a wizard at `http://127.0.0.1:4317/` that stays on this computer. Click through keys, the approver's name, an optional HackerOne username and token, owned-lab hostnames, and an optional mailbox. Saving does not call HackerOne, contact a lab host, approve a program, or turn off the kill switch.
+Run `npm run setup`. Your browser opens a wizard at `http://127.0.0.1:4317/` that stays on this computer. Click through keys, the approver's name, an optional HackerOne username and token, owned-lab hostnames, and an optional mailbox. Saving opens the scanner on this computer and starts the local fixture scan. That scan does not call HackerOne, contact a lab host, approve a program, or turn off the kill switch.
 
 The wizard encrypts the values with Windows DPAPI for the current user and writes them under `secrets/`, which git ignores. `worker`, `monitor`, `aggressive`, and `fleet` read that file when it exists. A value already set in the environment wins. `npm run verify:local` sets `ANTEATER_USE_SETUP=false`, so the fixture run ignores a setup file on the machine.
 
@@ -56,9 +56,13 @@ npm run worker -- --once
 
 An aggressive run still needs `--snapshot-confirmed` and `--n8n-attested`, and the host still has to be in the lab list. Setup does not store those attestations.
 
-## What a run writes
+## Scanner
 
-There is no screen that shows a test while it runs. `npm run demo` prints a JSON log and writes markdown under `programs/`, which git ignores. A fixture pass records a synthetic observation and does not open a network connection.
+After setup is saved, the browser opens `http://127.0.0.1:4317/run`. The fixture scan starts on its own and lists what was admitted, what was held, and the finding from the local fixture. The saved lab hostname is shown and is not requested.
+
+![Fixture scan finished, with one admitted host and one finding](docs/images/scanner-fixture.png)
+
+`npm run demo` still prints a JSON log and writes markdown under `programs/`, which git ignores. A live program scan still needs a reviewed program. The kill switch stays on.
 
 ## Bounty review inbox
 
@@ -207,7 +211,7 @@ Without Docker, `npm run verify:local` starts temporary PostgreSQL, runs integra
 
 | Command | Purpose |
 | --- | --- |
-| `npm run setup` | Local wizard for keys, approver, HackerOne, lab hostnames, and an optional mailbox. Writes only to `secrets/` |
+| `npm run setup` | Local wizard for keys, approver, HackerOne, lab hostnames, and an optional mailbox. Saving opens the fixture scanner. Writes only to `secrets/` |
 | `npm run check` | Compile TypeScript and run unit tests |
 | `npm run test:integration` | Test a running PostgreSQL in an isolated schema |
 | `npm run verify:local` | Temporary native PostgreSQL, integration tests, fixture replay |

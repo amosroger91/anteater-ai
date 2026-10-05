@@ -99,6 +99,26 @@ test('the loopback wizard saves a profile and its status hides the token', async
     const status = await (await fetch(`http://127.0.0.1:${port}/api/status`)).json();
     assert.equal(status.programReady, true);
     assert.equal(JSON.stringify(status).includes(token), false);
+    const scanner = await fetch(`http://127.0.0.1:${port}/run`);
+    assert.equal(scanner.status, 200);
+    assert.match(await scanner.text(), /Fixture scan/);
+    const scan = await fetch(`http://127.0.0.1:${port}/api/scan/fixture`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: `http://127.0.0.1:${port}` },
+      body: '{}',
+    });
+    const scanBody = await scan.json();
+    assert.equal(scan.status, 200);
+    assert.equal(scanBody.contactedNetwork, false);
+    assert.deepEqual(scanBody.admitted, ['api.example.test']);
+    assert.ok(scanBody.held.includes('secret.example.test'));
+    assert.equal(scanBody.verification.reproduced, true);
+    const rejected = await fetch(`http://127.0.0.1:${port}/api/scan/fixture`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'http://evil.example' },
+      body: '{}',
+    });
+    assert.equal(rejected.status, 403);
   } finally {
     server.close();
     await once(server, 'close');

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Anteater scanner</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Segoe UI", sans-serif; background: #f3efe6; color: #1d1a16; }
+    header { background: #1d1a16; color: #f3efe6; padding: 28px 20px 22px; }
+    header h1 { margin: 0 0 8px; font-size: 28px; }
+    header p { margin: 0; max-width: 42rem; line-height: 1.45; }
+    main { max-width: 46rem; margin: 0 auto; padding: 20px; display: grid; gap: 16px; }
+    section { background: #fff; border: 1px solid #1d1a16; padding: 20px; }
+    h2 { margin: 0 0 8px; font-size: 22px; }
+    p, li { line-height: 1.45; }
+    .help { color: #3d3832; }
+    button { min-height: 44px; padding: 10px 16px; font: inherit; cursor: pointer; border: 1px solid #1d1a16; background: #1d1a16; color: #f3efe6; }
+    button:disabled { cursor: not-allowed; opacity: 0.55; }
+    .error { background: #fff4f0; border: 1px solid #8a2b12; color: #6d1f0c; padding: 10px 12px; }
+    ul { margin: 8px 0 0; padding-left: 1.2rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #1d1a16; vertical-align: top; }
+    footer { max-width: 46rem; margin: 0 auto; padding: 0 20px 28px; color: #3d3832; }
+    a { color: #1d1a16; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Anteater scanner</h1>
+    <p>Setup stays on this computer. The scan below is the local fixture. It does not contact a lab host or HackerOne.</p>
+  </header>
+  <main>
+    <div id="error" class="error" hidden></div>
+    <section>
+      <h2>Fixture scan</h2>
+      <p id="state">Starting the fixture scan.</p>
+      <button id="again" type="button" disabled>Run the fixture scan again</button>
+      <h3>Admitted</h3>
+      <ul id="admitted"></ul>
+      <h3>Held</h3>
+      <ul id="held"></ul>
+      <h3>Findings</h3>
+      <table>
+        <thead><tr><th>Host</th><th>Check</th><th>Severity</th></tr></thead>
+        <tbody id="findings"></tbody>
+      </table>
+      <p id="verify"></p>
+    </section>
+    <section>
+      <h2>Live target</h2>
+      <p id="lab">Reading the saved lab hostname.</p>
+      <p class="help">A saved hostname is not a reviewed program. This page does not turn the kill switch off and does not send a request to that host.</p>
+    </section>
+  </main>
+  <footer><a href="/">Back to setup</a></footer>
+  <script>
+    const state = document.querySelector('#state');
+    const errorBox = document.querySelector('#error');
+    const again = document.querySelector('#again');
+    function showError(message) {
+      errorBox.hidden = !message;
+      errorBox.textContent = message || '';
+    }
+    function list(id, items, empty) {
+      const node = document.querySelector(id);
+      node.replaceChildren(...(items.length ? items : [empty]).map(text => {
+        const item = document.createElement('li');
+        item.textContent = text;
+        return item;
+      }));
+    }
+    function render(scan) {
+      state.textContent = scan.contactedNetwork
+        ? 'The scan contacted a target.'
+        : `Fixture scan finished. ${scan.jobs} job, no network request.`;
+      list('#admitted', scan.admitted, 'Nothing was admitted.');
+      list('#held', scan.held, 'Nothing was held.');
+      const body = document.querySelector('#findings');
+      body.replaceChildren(...scan.findings.map(finding => {
+        const row = document.createElement('tr');
+        for (const value of [finding.host, finding.code, finding.severity]) {
+          const cell = document.createElement('td');
+          cell.textContent = value;
+          row.append(cell);
+        }
+        return row;
+      }));
+      const verify = scan.verification;
+      document.querySelector('#verify').textContent = verify
+        ? `Verification ${verify.next}. Reproduced: ${verify.reproduced ? 'yes' : 'no'}. Coverage candidates: ${scan.coverage.candidates}.`
+        : 'Verification did not run.';
+    }
+    async function runScan() {
+      showError('');
+      again.disabled = true;
+      state.textContent = 'Running the fixture scan.';
+      const response = await fetch('/api/scan/fixture', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+      const body = await response.json();
+      if (!response.ok) { showError(body.error || 'The fixture scan failed.'); state.textContent = 'The fixture scan stopped.'; }
+      else render(body);
+      again.disabled = false;
+    }
+    async function showLab() {
+      const response = await fetch('/api/status');
+      const status = await response.json();
+      const host = status.labHosts || '';
+      document.querySelector('#lab').textContent = host
+        ? `Saved lab hostname: ${host}. It was not scanned.`
+        : 'No lab hostname is saved.';
+    }
+    again.addEventListener('click', () => { runScan().catch(() => showError('The fixture scan failed.')); });
+    showLab().catch(() => { document.querySelector('#lab').textContent = 'Saved setup could not be read.'; });
+    runScan().catch(() => showError('The fixture scan failed.'));
+  </script>
+</body>
+</html>

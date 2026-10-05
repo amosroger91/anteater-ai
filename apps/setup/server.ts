@@ -3,8 +3,10 @@ import { readFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { blankProfile, mergeProfile, profileStatus, SetupRequestSchema } from '../../packages/setup/profile.js';
 import type { FileSetupStore } from '../../packages/setup/store.js';
+import { publicFixtureScan, runLocalFixtureScan } from '../orchestrator/fixture-campaign.js';
 
 const page = readFileSync(new URL('./index.html', import.meta.url), 'utf8');
+const scanner = readFileSync(new URL('./run.html', import.meta.url), 'utf8');
 const MAX_BODY = 32_768;
 
 export interface SetupStore {
@@ -45,6 +47,13 @@ export function createSetupServer(store: SetupStore) {
       if (!loopback(request)) { send(response, 403, { error: 'loopback_only' }); return; }
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
       if (request.method === 'GET' && url.pathname === '/') { send(response, 200, page, 'text/html'); return; }
+      if (request.method === 'GET' && url.pathname === '/run') { send(response, 200, scanner, 'text/html'); return; }
+      if (request.method === 'POST' && url.pathname === '/api/scan/fixture') {
+        const origin = request.headers.origin;
+        if (origin && !/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) { send(response, 403, { error: 'origin_rejected' }); return; }
+        send(response, 200, publicFixtureScan(await runLocalFixtureScan()));
+        return;
+      }
       if (request.method === 'GET' && url.pathname === '/api/status') {
         send(response, 200, profileStatus(store.read()));
         return;
