@@ -27,12 +27,27 @@ test('every methodology id referenced exists in the pinned table', () => {
 const result = (origin: string, reachable: boolean, codes: string[]): ScanResult =>
   ({ origin, reachable, findings: codes.map(code => ({ code, severity: 'medium', detail: '' })) });
 
-test('a clean HTTPS target passes every applicable check and has no gaps', () => {
+test('a clean HTTPS target passes observed checks and leaves unobserved checks as gaps', () => {
   const c = coverageForTarget(result('https://clean.test', true, []));
-  assert.equal(c.gaps, 0);
   assert.equal(c.candidates, 0);
-  assert.equal(c.executed, CHECKS.length);
-  assert.ok(c.checks.every(x => x.status === 'passed'));
+  const unobserved = new Set(CHECKS.filter(check => check.requiresPaths?.length || check.requiresCname || check.requiresOrigin).map(check => check.id));
+  assert.ok(unobserved.size >= 6);
+  for (const check of c.checks) {
+    if (unobserved.has(check.checkId)) assert.equal(check.status, 'skipped');
+    else assert.equal(check.status, 'passed');
+  }
+  assert.equal(c.gaps, unobserved.size);
+  assert.equal(c.executed, c.checks.length - unobserved.size);
+  assert.ok(c.checks.filter(check => unobserved.has(check.checkId)).every(check => check.reason === 'not observed'));
+});
+
+test('a source-file check passes only after every required path was fetched', () => {
+  const clean = coverageForTarget({ ...result('https://clean.test', true, []), probedPaths: ['/.git/config', '/.env', '/.DS_Store'] });
+  assert.equal(clean.checks.find(check => check.checkId === 'files.exposed-vcs')?.status, 'passed');
+  const partial = coverageForTarget({ ...result('https://clean.test', true, []), probedPaths: ['/.git/config'] });
+  assert.equal(partial.checks.find(check => check.checkId === 'files.exposed-vcs')?.status, 'skipped');
+  const flagged = coverageForTarget(result('https://clean.test', true, ['exposed_vcs']));
+  assert.equal(flagged.checks.find(check => check.checkId === 'files.exposed-vcs')?.status, 'candidate');
 });
 
 test('a finding becomes a candidate, not a pass', () => {

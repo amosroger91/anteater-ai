@@ -140,3 +140,11 @@ export type DetectorName = keyof typeof DETECTORS;
 export function runAll(v: HttpResponseView): WebFinding[] {
   return Object.values(DETECTORS).flatMap(d => d(v));
 }
+
+// Read-only signatures that can be decided from one response. Takeover still needs a CNAME,
+// and credentialed CORS still needs the Origin the server reflected. Those stay unobserved.
+export function paidReadFindings(v: HttpResponseView): WebFinding[] {
+  return [exposedVcs, exposedAdmin, openRedirectToTakeover, secretsInJs].flatMap(detector => detector(v));
+}
+
+export const VCS_READ_PATHS = ['/.git/config', '/.env', '/.DS_Store'] as const;

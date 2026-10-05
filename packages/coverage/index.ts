@@ -51,6 +51,9 @@ export interface Check {
   findingCodes: string[];              // detector codes that make this check a CANDIDATE
   secureResult: string;                // what "passed" means
   cleanup: 'none';
+  requiresPaths?: readonly string[];   // every path must have been fetched before a pass
+  requiresCname?: boolean;             // a pass needs an observed CNAME, not a homepage GET
+  requiresOrigin?: boolean;            // a pass needs the Origin the server was shown
 }
 
 export const CHECKS: Check[] = [
@@ -62,12 +65,12 @@ export const CHECKS: Check[] = [
   { id: 'headers.misc', title: 'Supporting security headers set', detector: 'posture', methodology: ['ASVS-V14.4.4', 'ASVS-V14.4.7'], appliesWhen: 'https', action: 'passive-read', findingCodes: ['missing_headers', 'missing_security_headers'], secureResult: 'X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy present', cleanup: 'none' },
   { id: 'info.version-disclosure', title: 'Server/framework version not disclosed', detector: 'posture', methodology: ['WSTG-INFO-02', 'WSTG-INFO-08'], appliesWhen: 'always', action: 'passive-read', findingCodes: ['version_disclosure'], secureResult: 'no version in Server/X-Powered-By', cleanup: 'none' },
   { id: 'session.cookie-attrs', title: 'Cookies carry Secure/HttpOnly/SameSite', detector: 'posture', methodology: ['WSTG-SESS-02', 'ASVS-V3.4.1', 'ASVS-V3.4.2', 'ASVS-V3.4.3'], appliesWhen: 'always', action: 'passive-read', findingCodes: ['weak_cookie_flags'], secureResult: 'all cookie security attributes set', cleanup: 'none' },
-  { id: 'dns.subdomain-takeover', title: 'Dangling name is not an unclaimed service page', detector: 'posture', methodology: ['WSTG-CONF-10'], appliesWhen: 'https', action: 'passive-read', findingCodes: ['subdomain_takeover'], secureResult: 'no unclaimed-service fingerprint on a dangling name', cleanup: 'none' },
-  { id: 'files.exposed-vcs', title: 'Source-control and environment files are not served', detector: 'posture', methodology: ['WSTG-CONF-04'], appliesWhen: 'https', action: 'passive-read', findingCodes: ['exposed_vcs'], secureResult: 'git config, env, and DS_Store signatures absent', cleanup: 'none' },
-  { id: 'admin.exposed', title: 'Privileged admin or debug content is not public', detector: 'posture', methodology: ['WSTG-CONF-05'], appliesWhen: 'https', action: 'passive-read', findingCodes: ['exposed_admin'], secureResult: 'actuator index and admin listings absent', cleanup: 'none' },
-  { id: 'cors.credentialed', title: 'Credentialed CORS does not reflect another origin', detector: 'posture', methodology: ['WSTG-CLNT-07', 'ASVS-V14.5.3'], appliesWhen: 'https', action: 'passive-read', findingCodes: ['cors_credentialed'], secureResult: 'credentials are not paired with a reflected foreign origin', cleanup: 'none' },
-  { id: 'redirect.auth-takeover', title: 'Auth and token redirects stay on the request host', detector: 'posture', methodology: ['WSTG-CLNT-04'], appliesWhen: 'https', action: 'passive-read', findingCodes: ['open_redirect_to_takeover'], secureResult: 'auth redirect target stays on the request host', cleanup: 'none' },
-  { id: 'client.secrets-in-js', title: 'Served JavaScript does not contain a live-looking key', detector: 'posture', methodology: ['WSTG-INFO-05'], appliesWhen: 'https', action: 'passive-read', findingCodes: ['secrets_in_js'], secureResult: 'no live-looking key pattern in served JavaScript', cleanup: 'none' },
+  { id: 'dns.subdomain-takeover', title: 'Dangling name is not an unclaimed service page', detector: 'posture', methodology: ['WSTG-CONF-10'], appliesWhen: 'https', action: 'passive-read', findingCodes: ['subdomain_takeover'], secureResult: 'no unclaimed-service fingerprint on a dangling name', cleanup: 'none', requiresCname: true },
+  { id: 'files.exposed-vcs', title: 'Source-control and environment files are not served', detector: 'posture', methodology: ['WSTG-CONF-04'], appliesWhen: 'https', action: 'passive-read', findingCodes: ['exposed_vcs'], secureResult: 'git config, env, and DS_Store signatures absent', cleanup: 'none', requiresPaths: ['/.git/config', '/.env', '/.DS_Store'] },
+  { id: 'admin.exposed', title: 'Privileged admin or debug content is not public', detector: 'posture', methodology: ['WSTG-CONF-05'], appliesWhen: 'https', action: 'passive-read', findingCodes: ['exposed_admin'], secureResult: 'actuator index and admin listings absent', cleanup: 'none', requiresPaths: ['/actuator', '/admin', '/debug'] },
+  { id: 'cors.credentialed', title: 'Credentialed CORS does not reflect another origin', detector: 'posture', methodology: ['WSTG-CLNT-07', 'ASVS-V14.5.3'], appliesWhen: 'https', action: 'passive-read', findingCodes: ['cors_credentialed'], secureResult: 'credentials are not paired with a reflected foreign origin', cleanup: 'none', requiresOrigin: true },
+  { id: 'redirect.auth-takeover', title: 'Auth and token redirects stay on the request host', detector: 'posture', methodology: ['WSTG-CLNT-04'], appliesWhen: 'https', action: 'passive-read', findingCodes: ['open_redirect_to_takeover'], secureResult: 'auth redirect target stays on the request host', cleanup: 'none', requiresPaths: ['/login', '/signin', '/oauth', '/auth', '/callback', '/token'] },
+  { id: 'client.secrets-in-js', title: 'Served JavaScript does not contain a live-looking key', detector: 'posture', methodology: ['WSTG-INFO-05'], appliesWhen: 'https', action: 'passive-read', findingCodes: ['secrets_in_js'], secureResult: 'no live-looking key pattern in served JavaScript', cleanup: 'none', requiresPaths: ['/app.js'] },
 ];
 
 // Detector codes that are infrastructural (not a check result): they mean the target could not be assessed.
@@ -78,6 +81,9 @@ export const ScanFinding = z.object({ code: z.string(), severity: z.string(), de
 export const ScanResult = z.object({
   origin: z.string(), reachable: z.boolean(), findings: z.array(ScanFinding),
   mode: z.string().optional(), executed: z.boolean().optional(),
+  probedPaths: z.array(z.string()).optional(),
+  sawCname: z.boolean().optional(),
+  sawRequestOrigin: z.boolean().optional(),
 });
 export type ScanResult = z.infer<typeof ScanResult>;
 
@@ -96,6 +102,11 @@ export function coverageForTarget(result: ScanResult, checks: Check[] = CHECKS):
     // the cert while fetch rejected the bad cert). Only mark skipped when nothing was observed.
     if (c.findingCodes.some(code => codes.has(code))) return { ...base, status: 'candidate', reason: c.findingCodes.filter(code => codes.has(code)).join(', ') };
     if (unassessable) return { ...base, status: 'skipped', reason: 'target could not be assessed (unreachable/invalid)' };
+    const probed = new Set(result.probedPaths ?? []);
+    const missingPath = c.requiresPaths?.some(required => !probed.has(required)) ?? false;
+    if (missingPath || (c.requiresCname && !result.sawCname) || (c.requiresOrigin && !result.sawRequestOrigin)) {
+      return { ...base, status: 'skipped', reason: 'not observed' };
+    }
     return { ...base, status: 'passed', reason: c.secureResult };
   });
   const applicable = rows.filter(r => r.status !== 'not_applicable').length;

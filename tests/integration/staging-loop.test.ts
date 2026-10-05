@@ -85,12 +85,14 @@ function labResponder(port: number): Responder {
   };
 }
 
-function passiveFromLab(port: number): PassiveDeps & { options: () => RequestOptions | undefined } {
+function passiveFromLab(port: number): PassiveDeps & { options: () => RequestOptions | undefined; paths: string[] } {
   let options: RequestOptions | undefined;
+  const paths: string[] = [];
   const deps: PassiveDeps = {
     lookup: async () => [{ address: '93.184.216.34', family: 4 }],
     request: (input, callback) => {
       options = input;
+      paths.push(String(input.path ?? '/'));
       const request = new EventEmitter() as ClientRequest;
       request.destroy = () => request;
       request.end = (() => {
@@ -113,7 +115,7 @@ function passiveFromLab(port: number): PassiveDeps & { options: () => RequestOpt
       return request;
     },
   };
-  return Object.assign(deps, { options: () => options });
+  return Object.assign(deps, { options: () => options, paths });
 }
 
 test('staging loop discovers the owned lab, replays the seeded IDOR, and submits only with a human', async () => {
@@ -177,6 +179,8 @@ test('staging loop discovers the owned lab, replays the seeded IDOR, and submits
     assert.deepEqual(assets.rows, [{ id: 'lab-vuln-anteater-test', url: 'https://lab-vuln.anteater.test' }]);
     assert.equal((await pool.query("SELECT count(*)::int AS n FROM research_jobs WHERE status='completed'")).rows[0].n, 1);
     assert.equal(passive.options()?.host, '93.184.216.34');
+    assert.ok(passive.paths.length > 0);
+    assert.ok(!passive.paths.some(path => path === '/.git/config' || path === '/.env' || path === '/.DS_Store'));
     assert.equal(result.observations[0]?.observation.ip, '93.184.216.34');
     assert.match(String(result.observations[0]?.observation.bodySnippet), /anteater-lab/);
     assert.match(String(result.observations[0]?.observation.bodySnippet), /vulnerable/);

@@ -1,4 +1,5 @@
 import type pg from 'pg';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { discoverAndPartition, type DiscoveryAdapter } from '../../packages/discovery/index.js';
 import { candidateJobs, type JobSpec } from '../../packages/discovery/enqueue.js';
 import { coverageReport, type CoverageSummary, type ScanResult } from '../../packages/coverage/index.js';
@@ -7,9 +8,10 @@ import { remediationFor } from '../../packages/remediation/index.js';
 import type { Action } from '../../packages/scope-engine/index.js';
 import { ProgramSchema, type Program } from '../../packages/bounty-providers/index.js';
 import { saveProgram } from '../../packages/research-state/workspace.js';
-import { Jobs, recordCampaignCoverage, recordReplay } from '../../packages/research-state/jobs.js';
+import { acquireRate, Jobs, recordCampaignCoverage, recordReplay } from '../../packages/research-state/jobs.js';
 import { ToolGateway, type GatewayExecutors } from '../../packages/mcp/index.js';
-import { retryableTransportError } from '../../packages/web-executor/index.js';
+import { probeAuthorizedGets, retryableTransportError } from '../../packages/web-executor/index.js';
+import { VCS_READ_PATHS } from '../../packages/web-checks/index.js';
 import type { Config } from '../../packages/shared/config.js';
 
 // Persistent campaign (BOUNTY_EARNINGS_PLAN.md Phase 0.2). Discovery, admission, job specs,
@@ -106,6 +108,26 @@ export async function runLiveCampaign(
     if (!job) break;
     try {
       const observation = await gateway.invoke(job, job.action, job.asset_id);
+      if (job.action === 'inspect_http_target' && observation.error === undefined) {
+        const host = byAsset.get(job.asset_id);
+        if (host) {
+          const paid = await probeAuthorizedGets({
+            host, policy: program.policy, killSwitch: config().GLOBAL_KILL_SWITCH, enabled: config().ENABLE_PASSIVE_HTTP,
+            paths: VCS_READ_PATHS, maxBytes: config().MAX_RESPONSE_BYTES, deps: deps.executors?.passive,
+            reserve: async () => {
+              for (let attempt = 0; attempt < 8; attempt++) {
+                if (config().GLOBAL_KILL_SWITCH) return false;
+                if (await acquireRate(deps.pool, program.id, program.policy.requestsPerSecond, config().MAX_REQUEST_RATE)) return true;
+                await sleep(250);
+              }
+              return false;
+            },
+          });
+          const existing = Array.isArray(observation.signals) ? observation.signals : [];
+          observation.signals = [...existing, ...paid.signals];
+          observation.probedPaths = paid.probed;
+        }
+      }
       const transport = retryableTransportError(observation);
       if (transport) { await jobs.fail(job); continue; }
       const observationId = await jobs.complete(job, observation);
@@ -121,6 +143,7 @@ export async function runLiveCampaign(
     origin: `https://${row.host}`,
     reachable: typeof row.observation.status === 'number' && row.observation.error === undefined,
     findings: signalsOf(row.observation),
+    probedPaths: Array.isArray(row.observation.probedPaths) ? row.observation.probedPaths.filter((path): path is string => typeof path === 'string') : [],
   }));
   const report = coverageReport(results);
   await recordCampaignCoverage(deps.pool, program.id, { ...report.summary }, report.markdown);

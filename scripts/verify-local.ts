@@ -29,6 +29,7 @@ try {
   await run(['--test','tests/integration/aggressive-lifecycle.test.ts']);
   await run(['--test','tests/integration/triage-report.test.ts']);
   await run(['--test','tests/integration/fleet-ledger.test.ts']);
+  await run(['--test','tests/integration/paid-reads.test.ts']);
   await run(['apps/orchestrator/worker.ts','--once']);
   await run(['apps/orchestrator/demo.ts']);
   const client=postgres.getPgClient('anteater');
