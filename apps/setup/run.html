@@ -62,6 +62,14 @@
         blocked_address: 'The address is blocked. Turn on private lab access in setup if this hostname is yours and it uses a private address.',
         origin_rejected: 'The scan was refused.',
         scan_failed: 'The scan failed.',
+        request_timeout: 'The host did not respond in time.',
+        etimedout: 'The host did not respond in time.',
+        econnrefused: 'The host refused the connection.',
+        enotfound: 'The hostname did not resolve.',
+        ehostunreach: 'The host could not be reached.',
+        enetunreach: 'The network could not reach the host.',
+        econnreset: 'The host closed the connection.',
+        request_failed: 'The request failed.',
       };
       return messages[code] || code;
     }
@@ -132,9 +140,12 @@
         });
         const body = await response.json();
         if (!response.ok) { showError(messageFor(body.error || 'scan_failed')); note.textContent = 'Scan stopped.'; return; }
+        const firstError = body.checks.map(check => check.error).find(Boolean);
         note.textContent = body.contactedNetwork
           ? 'Scan finished. Requests were sent to ' + body.host + '.'
-          : 'Scan finished. No request was sent.';
+          : (firstError && firstError !== 'blocked_address'
+            ? 'Scan finished. ' + body.host + ' did not answer, so the other paths were not requested. ' + messageFor(firstError)
+            : 'Scan finished. No request was sent.');
         output.append(resultTable(body));
       } catch {
         showError('The scan failed.');

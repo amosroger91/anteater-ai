@@ -22,7 +22,7 @@ See [architecture](docs/ARCHITECTURE.md), [implemented improvements](docs/EXECUT
 
 ## Setup
 
-Run `npm run setup`. Your browser opens a wizard at `http://127.0.0.1:4317/` that stays on this computer. Click through keys, the approver's name, an optional HackerOne username and token, owned-lab hostnames, and an optional mailbox. Saving opens the scanner on this computer and starts the local fixture scan. That scan does not call HackerOne, contact a lab host, approve a program, or turn off the kill switch.
+Run `npm run setup`. Your browser opens a wizard at `http://127.0.0.1:4317/` that stays on this computer. Click through keys, the approver's name, an optional HackerOne username and token, owned-lab hostnames, and an optional mailbox. Saving opens the scanner on this computer. A saved hostname is contacted only when you click Scan. Saving does not call HackerOne, approve a program, or turn off the kill switch.
 
 The wizard encrypts the values with Windows DPAPI for the current user and writes them under `secrets/`, which git ignores. `worker`, `monitor`, `aggressive`, and `fleet` read that file when it exists. A value already set in the environment wins. `npm run verify:local` sets `ANTEATER_USE_SETUP=false`, so the fixture run ignores a setup file on the machine.
 
@@ -58,7 +58,7 @@ An aggressive run still needs `--snapshot-confirmed` and `--n8n-attested`, and t
 
 ## Scanner
 
-After setup is saved, the browser opens `http://127.0.0.1:4317/run`. Each saved lab hostname has a Scan button. Scan sends four read-only HTTPS requests to that host: `/`, `/robots.txt`, `/sitemap.xml`, and `/.well-known/openapi.json`. A hostname that was not saved is refused. A private address is requested only when private lab access is on for that saved name.
+After setup is saved, the browser opens `http://127.0.0.1:4317/run`. Each saved lab hostname has a Scan button. Scan sends four read-only HTTPS requests to that host: `/`, `/robots.txt`, `/sitemap.xml`, and `/.well-known/openapi.json`. A hostname that was not saved is refused. A private address is requested only when private lab access is on for that saved name. If the host does not answer, the page says so and does not request the other paths.
 
 ![Lab scan finished for a saved hostname](docs/images/scanner-lab.png)
 

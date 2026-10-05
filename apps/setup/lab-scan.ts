@@ -45,6 +45,28 @@ export interface LabScan {
   checks: LabCheck[];
 }
 
+const UNREACHABLE = new Set([
+  'blocked_address',
+  'request_timeout',
+  'etimedout',
+  'econnrefused',
+  'enotfound',
+  'ehostunreach',
+  'enetunreach',
+  'eai_again',
+  'econnreset',
+]);
+
+function failureCode(error: unknown): string {
+  if (error instanceof Error && /^[a-z0-9_]+$/.test(error.message)) return error.message;
+  const cause = error && typeof error === 'object' && 'cause' in error ? error.cause : undefined;
+  if (cause instanceof Error && /^[a-z0-9_]+$/.test(cause.message)) return cause.message;
+  const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+  if (code === 'ABORT_ERR') return 'request_timeout';
+  if (/^[A-Z0-9_]+$/.test(code)) return code.toLowerCase();
+  return 'request_failed';
+}
+
 function findingsOf(value: unknown): LabCheck['findings'] {
   if (!value || typeof value !== 'object' || !('signals' in value) || !Array.isArray(value.signals)) return [];
   return value.signals.slice(0, 20).map(signal => {
@@ -57,7 +79,7 @@ function findingsOf(value: unknown): LabCheck['findings'] {
   });
 }
 
-export async function scanSavedLab(profile: SetupProfile, rawHost: string, deps?: PassiveDeps): Promise<LabScan> {
+export async function scanSavedLab(profile: SetupProfile, rawHost: string, deps?: PassiveDeps, timeoutMs = 10_000): Promise<LabScan> {
   const host = rawHost.trim().toLowerCase().replace(/\.$/, '');
   if (!savedHosts(profile).includes(host)) throw new Error('host_not_saved');
   const policy = policyFor(host);
@@ -72,21 +94,29 @@ export async function scanSavedLab(profile: SetupProfile, rawHost: string, deps?
       checks.push({ path: step.path, status: 0, error: decision.reason, findings: [] });
       continue;
     }
-    const observation = await executePassiveHttp(target, {
-      maxBytes: 65_536,
-      timeoutMs: 10_000,
-      labTargets,
-      ...(deps ? { deps } : {}),
-      beforeRequest: async () => {
-        const again = authorize(policy, target, step.action, { GLOBAL_KILL_SWITCH: false });
-        if (!again.allowed) throw new Error(again.reason);
-      },
-    });
-    const error = typeof observation.error === 'string' ? observation.error : null;
-    const status = typeof observation.status === 'number' ? observation.status : 0;
-    if (typeof observation.status === 'number') contactedNetwork = true;
-    checks.push({ path: step.path, status, error, findings: findingsOf(observation) });
-    if (error === 'blocked_address') break;
+    let error: string | null = null;
+    let status = 0;
+    let findings: LabCheck['findings'] = [];
+    try {
+      const observation = await executePassiveHttp(target, {
+        maxBytes: 65_536,
+        timeoutMs,
+        labTargets,
+        ...(deps ? { deps } : {}),
+        beforeRequest: async () => {
+          const again = authorize(policy, target, step.action, { GLOBAL_KILL_SWITCH: false });
+          if (!again.allowed) throw new Error(again.reason);
+        },
+      });
+      error = typeof observation.error === 'string' ? observation.error : null;
+      status = typeof observation.status === 'number' ? observation.status : 0;
+      if (typeof observation.status === 'number') contactedNetwork = true;
+      findings = findingsOf(observation);
+    } catch (caught) {
+      error = failureCode(caught);
+    }
+    checks.push({ path: step.path, status, error, findings });
+    if (error && UNREACHABLE.has(error)) break;
   }
   return { host, contactedNetwork, privateLab: profile.allowPrivateLabTargets, checks };
 }

@@ -79,6 +79,34 @@ test('a private answer is not requested unless the saved lab flag is on', async 
   assert.equal(allowed.calls.length, 4);
 });
 
+test('a host that does not answer is reported and the other paths are not requested', async () => {
+  const profile = mergeProfile(blankProfile(), request);
+  let calls = 0;
+  const deps: PassiveDeps = {
+    lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+    request: input => {
+      calls += 1;
+      const pending = new EventEmitter() as ClientRequest;
+      pending.end = () => pending;
+      pending.destroy = () => pending;
+      const fail = () => pending.emit('error', Object.assign(new Error('The operation was aborted'), {
+        name: 'AbortError',
+        code: 'ABORT_ERR',
+        cause: input.signal?.reason,
+      }));
+      if (input.signal?.aborted) queueMicrotask(fail);
+      else input.signal?.addEventListener('abort', fail);
+      return pending;
+    },
+  };
+  const scan = await scanSavedLab(profile, 'lab.anteater.test', deps, 80);
+  assert.equal(scan.contactedNetwork, false);
+  assert.equal(scan.checks.length, 1);
+  assert.equal(scan.checks[0]?.path, '/');
+  assert.equal(scan.checks[0]?.error, 'request_timeout');
+  assert.equal(calls, 1);
+});
+
 test('the scanner route refuses a host that was not saved and accepts one that was', async () => {
   const memory = { profile: mergeProfile(blankProfile(), request) };
   const store: SetupStore = { read: () => memory.profile, write: profile => { memory.profile = profile; } };
