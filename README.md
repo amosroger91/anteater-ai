@@ -40,6 +40,12 @@ The same first step on a narrow screen:
 
 ![Keys step on a phone-width screen](docs/images/setup-keys-mobile.png)
 
+![Approver step](docs/images/setup-approver.png)
+
+![Owned-lab step](docs/images/setup-lab.png)
+
+![Mailbox step. The password is masked.](docs/images/setup-mailbox.png)
+
 When you are watching an owned lab, start one bounded pass from a shell. The policy still has to allow the host:
 
 ```powershell
@@ -49,6 +55,20 @@ npm run worker -- --once
 ```
 
 An aggressive run still needs `--snapshot-confirmed` and `--n8n-attested`, and the host still has to be in the lab list. Setup does not store those attestations.
+
+## What a run writes
+
+There is no screen that shows a test while it runs. `npm run demo` is one fixture pass. It uses a temporary local database, records one synthetic observation for `https://api.example.test/`, and does not open a network connection. The log is JSON on the terminal. The readable result is markdown under `programs/fixture-company/`, which git ignores.
+
+![Fixture program record](docs/images/run-program.png)
+
+![Fixture observation. The note says no network request was performed.](docs/images/run-recon.png)
+
+![Completed fixture job](docs/images/run-history.png)
+
+![Fixture findings file, still empty](docs/images/run-findings.png)
+
+![Fixture hypothesis. The label is no_signal.](docs/images/run-hypotheses.png)
 
 ## Bounty review inbox
 
