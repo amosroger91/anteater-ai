@@ -37,7 +37,7 @@ export async function researchApplication(origin: string, rawApp: Application, c
     for (const entry of auth.accounts) {
       const username = env[entry.usernameEnv]; const password = env[entry.passwordEnv];
       if (!username || !password) { coverage.push({ id: entry.id, status: 'unavailable', reason: 'credentials_missing', identityValidated: false }); continue; }
-      accounts.push({ id: entry.id, username, password, createdAt: new Date().toISOString(), registration: 'verified' });
+      accounts.push({ id: entry.id, username, password, createdAt: new Date().toISOString(), registration: 'verified', role: entry.role, tenant: entry.tenant });
     }
     if (!accounts.length && auth.signupEnabled) {
       if (!config.ALLOW_ACTIVE_TESTING) gaps.push('registration_active_testing_disabled');

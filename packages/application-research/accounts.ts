@@ -2,8 +2,17 @@ import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'node:
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
-const AccountSchema = z.object({ id: z.string(), username: z.string(), password: z.string(), createdAt: z.string(), registration: z.enum(['prepared', 'submitted', 'verified']) }).strict();
+const AccountSchema = z.object({
+  id: z.string(), username: z.string(), password: z.string(), createdAt: z.string(),
+  registration: z.enum(['prepared', 'submitted', 'verified']),
+  role: z.enum(['user', 'admin']).default('user'),
+  tenant: z.string().regex(/^[a-z0-9-]+$/).default('default'),
+}).strict();
 export type Account = z.infer<typeof AccountSchema>;
+// Labels are safe to log. The password and username stay in the encrypted store.
+export function publicAccountLabel(account: { id: string; role?: 'user' | 'admin'; tenant?: string }) {
+  return { id: account.id, role: account.role ?? 'user', tenant: account.tenant ?? 'default' };
+}
 export class AccountStore {
   constructor(private directory: string, private key: string) {
     if (!/^[a-f0-9]{64}$/i.test(key)) throw new Error('account_key_required');
@@ -30,7 +39,7 @@ export class AccountStore {
   }
   async prepare(domain: string, id: string, emailDomain: string): Promise<Account> {
     const existing = await this.get(domain, id); if (existing) return existing;
-    const account: Account = { id, username: `anteater-${randomBytes(10).toString('hex')}@${emailDomain}`, password: `Aa1!${randomBytes(24).toString('base64url')}`, createdAt: new Date().toISOString(), registration: 'prepared' };
+    const account = AccountSchema.parse({ id, username: `anteater-${randomBytes(10).toString('hex')}@${emailDomain}`, password: `Aa1!${randomBytes(24).toString('base64url')}`, createdAt: new Date().toISOString(), registration: 'prepared' });
     try { await this.put(domain, account, true); return account; }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') return (await this.get(domain, id))!; throw error; }
   }

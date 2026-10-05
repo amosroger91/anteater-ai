@@ -9,12 +9,20 @@ export const MailboxSchema = z.object({
   emailDomain: z.string().regex(/^[a-z0-9.-]+\.[a-z]{2,}$/),
   timeoutSeconds: z.number().int().min(1).max(120).default(45),
 }).strict();
+export const AccountRoleSchema = z.enum(['user', 'admin']);
 export const AuthSchema = z.object({
   loginPath: safePath.optional(), signupPath: safePath.optional(),
   loginWritePaths: z.array(safePath).max(30).default(['/login', '/signin', '/api/login']),
   signupWritePaths: z.array(safePath).max(30).default(['/register', '/signup', '/api/register']),
   verificationPaths: z.array(safePath).max(20).default(['/verify', '/verify-email']),
-  accounts: z.array(z.object({ id: z.string().regex(/^[a-z0-9-]+$/), usernameEnv: envName, passwordEnv: envName }).strict()).max(2).default([]),
+  // Two ordinary users and one least-privileged admin. Fewer accounts still parse so older profiles keep working.
+  accounts: z.array(z.object({
+    id: z.string().regex(/^[a-z0-9-]+$/),
+    usernameEnv: envName,
+    passwordEnv: envName,
+    role: AccountRoleSchema.default('user'),
+    tenant: z.string().regex(/^[a-z0-9-]+$/).default('default'),
+  }).strict()).max(3).default([]),
   signupEnabled: z.boolean().default(false), mailbox: MailboxSchema.optional(),
   sessionPath: safePath.optional(), identityPointer: z.string().startsWith('/').default('/email'),
 }).strict();

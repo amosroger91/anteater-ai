@@ -4,7 +4,11 @@ import { randomBytes } from 'node:crypto';
 import type { Exchange } from '../packages/application-research/transport.js';
 
 export async function startResearchLab(options: { vulnerable?: boolean; challenge?: boolean; signup?: boolean; tokenAuth?: boolean; missingIdOnCreate?: boolean; egressProbes?: boolean } = {}) {
-  const users = new Map<string, { password: string; verified: boolean }>([['alice@example.test', { password: 'alice-password', verified: true }], ['bob@example.test', { password: 'bob-password', verified: true }]]);
+  const users = new Map<string, { password: string; verified: boolean }>([
+    ['alice@example.test', { password: 'alice-password', verified: true }],
+    ['bob@example.test', { password: 'bob-password', verified: true }],
+    ['admin@example.test', { password: 'admin-password', verified: true }],
+  ]);
   const sessions = new Map<string, string>();
   const records = new Map<string, { owner: string; title: string }>();
   const verification = new Map<string, string>();
