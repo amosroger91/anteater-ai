@@ -58,11 +58,11 @@ An aggressive run still needs `--snapshot-confirmed` and `--n8n-attested`, and t
 
 ## Scanner
 
-After setup is saved, the browser opens `http://127.0.0.1:4317/run`. The fixture scan starts on its own and lists what was admitted, what was held, and the finding from the local fixture. The saved lab hostname is shown and is not requested.
+After setup is saved, the browser opens `http://127.0.0.1:4317/run`. Each saved lab hostname has a Scan button. Scan sends four read-only HTTPS requests to that host: `/`, `/robots.txt`, `/sitemap.xml`, and `/.well-known/openapi.json`. A hostname that was not saved is refused. A private address is requested only when private lab access is on for that saved name.
 
-![Fixture scan finished, with one admitted host and one finding](docs/images/scanner-fixture.png)
+![Lab scan finished for a saved hostname](docs/images/scanner-lab.png)
 
-`npm run demo` still prints a JSON log and writes markdown under `programs/`, which git ignores. A live program scan still needs a reviewed program. The kill switch stays on.
+The fixture scan stays on the page as a practice run and does not start by itself. A HackerOne program is not fetched or scanned from this page.
 
 ## Bounty review inbox
 
@@ -211,7 +211,7 @@ Without Docker, `npm run verify:local` starts temporary PostgreSQL, runs integra
 
 | Command | Purpose |
 | --- | --- |
-| `npm run setup` | Local wizard for keys, approver, HackerOne, lab hostnames, and an optional mailbox. Saving opens the fixture scanner. Writes only to `secrets/` |
+| `npm run setup` | Local wizard for keys, approver, HackerOne, lab hostnames, and an optional mailbox. Saving opens the scanner for those hostnames. Writes only to `secrets/` |
 | `npm run check` | Compile TypeScript and run unit tests |
 | `npm run test:integration` | Test a running PostgreSQL in an isolated schema |
 | `npm run verify:local` | Temporary native PostgreSQL, integration tests, fixture replay |

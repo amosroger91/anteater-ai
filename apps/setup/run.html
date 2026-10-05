@@ -10,109 +10,159 @@
     body { margin: 0; font-family: "Segoe UI", sans-serif; background: #f3efe6; color: #1d1a16; }
     header { background: #1d1a16; color: #f3efe6; padding: 28px 20px 22px; }
     header h1 { margin: 0 0 8px; font-size: 28px; }
-    header p { margin: 0; max-width: 42rem; line-height: 1.45; }
-    main { max-width: 46rem; margin: 0 auto; padding: 20px; display: grid; gap: 16px; }
-    section { background: #fff; border: 1px solid #1d1a16; padding: 20px; }
+    header p { margin: 0; max-width: 44rem; line-height: 1.45; }
+    main { max-width: 48rem; margin: 0 auto; padding: 20px; display: grid; gap: 16px; }
+    section, .host { background: #fff; border: 1px solid #1d1a16; padding: 20px; }
+    .host + .host { margin-top: 12px; }
     h2 { margin: 0 0 8px; font-size: 22px; }
+    h3 { margin: 0; font-size: 18px; }
     p, li { line-height: 1.45; }
     .help { color: #3d3832; }
-    button { min-height: 44px; padding: 10px 16px; font: inherit; cursor: pointer; border: 1px solid #1d1a16; background: #1d1a16; color: #f3efe6; }
+    .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+    button, a.button { min-height: 44px; padding: 10px 16px; font: inherit; cursor: pointer; border: 1px solid #1d1a16; background: #1d1a16; color: #f3efe6; text-decoration: none; display: inline-flex; align-items: center; }
+    button.secondary { background: #fff; color: #1d1a16; }
     button:disabled { cursor: not-allowed; opacity: 0.55; }
     .error { background: #fff4f0; border: 1px solid #8a2b12; color: #6d1f0c; padding: 10px 12px; }
-    ul { margin: 8px 0 0; padding-left: 1.2rem; }
-    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
     th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #1d1a16; vertical-align: top; }
-    footer { max-width: 46rem; margin: 0 auto; padding: 0 20px 28px; color: #3d3832; }
-    a { color: #1d1a16; }
+    footer { max-width: 48rem; margin: 0 auto; padding: 0 20px 28px; }
+    footer a { color: #1d1a16; }
   </style>
 </head>
 <body>
   <header>
     <h1>Anteater scanner</h1>
-    <p>Setup stays on this computer. The scan below is the local fixture. It does not contact a lab host or HackerOne.</p>
+    <p>Choose a hostname you saved. Scan sends four read-only HTTPS requests to that host: the home page, robots.txt, sitemap.xml, and the OpenAPI document.</p>
   </header>
   <main>
     <div id="error" class="error" hidden></div>
     <section>
-      <h2>Fixture scan</h2>
-      <p id="state">Starting the fixture scan.</p>
-      <button id="again" type="button" disabled>Run the fixture scan again</button>
-      <h3>Admitted</h3>
-      <ul id="admitted"></ul>
-      <h3>Held</h3>
-      <ul id="held"></ul>
-      <h3>Findings</h3>
-      <table>
-        <thead><tr><th>Host</th><th>Check</th><th>Severity</th></tr></thead>
-        <tbody id="findings"></tbody>
-      </table>
-      <p id="verify"></p>
+      <h2>Saved hosts</h2>
+      <p id="private" class="help"></p>
+      <div id="hosts"></div>
     </section>
     <section>
-      <h2>Live target</h2>
-      <p id="lab">Reading the saved lab hostname.</p>
-      <p class="help">A saved hostname is not a reviewed program. This page does not turn the kill switch off and does not send a request to that host.</p>
+      <h2>Fixture scan</h2>
+      <p class="help">Practice run on local data. It does not contact a host.</p>
+      <button class="secondary" id="fixture" type="button">Run the fixture scan</button>
+      <div id="fixture-result"></div>
     </section>
   </main>
   <footer><a href="/">Back to setup</a></footer>
   <script>
-    const state = document.querySelector('#state');
     const errorBox = document.querySelector('#error');
-    const again = document.querySelector('#again');
+    const hosts = document.querySelector('#hosts');
     function showError(message) {
       errorBox.hidden = !message;
       errorBox.textContent = message || '';
     }
-    function list(id, items, empty) {
-      const node = document.querySelector(id);
-      node.replaceChildren(...(items.length ? items : [empty]).map(text => {
-        const item = document.createElement('li');
-        item.textContent = text;
-        return item;
-      }));
+    function messageFor(code) {
+      const messages = {
+        host_not_saved: 'That hostname is not in the saved lab list.',
+        blocked_address: 'The address is blocked. Turn on private lab access in setup if this hostname is yours and it uses a private address.',
+        origin_rejected: 'The scan was refused.',
+        scan_failed: 'The scan failed.',
+      };
+      return messages[code] || code;
     }
-    function render(scan) {
-      state.textContent = scan.contactedNetwork
-        ? 'The scan contacted a target.'
-        : `Fixture scan finished. ${scan.jobs} job, no network request.`;
-      list('#admitted', scan.admitted, 'Nothing was admitted.');
-      list('#held', scan.held, 'Nothing was held.');
-      const body = document.querySelector('#findings');
-      body.replaceChildren(...scan.findings.map(finding => {
+    function resultTable(scan) {
+      const table = document.createElement('table');
+      table.innerHTML = '<thead><tr><th>Path</th><th>Status</th><th>Result</th></tr></thead>';
+      const body = document.createElement('tbody');
+      for (const check of scan.checks) {
         const row = document.createElement('tr');
-        for (const value of [finding.host, finding.code, finding.severity]) {
+        const result = check.error
+          ? messageFor(check.error)
+          : (check.findings.length ? check.findings.map(finding => finding.code + ' (' + finding.severity + ')').join(', ') : 'No finding');
+        for (const value of [check.path, check.status ? String(check.status) : '—', result]) {
           const cell = document.createElement('td');
           cell.textContent = value;
           row.append(cell);
         }
-        return row;
-      }));
-      const verify = scan.verification;
-      document.querySelector('#verify').textContent = verify
-        ? `Verification ${verify.next}. Reproduced: ${verify.reproduced ? 'yes' : 'no'}. Coverage candidates: ${scan.coverage.candidates}.`
-        : 'Verification did not run.';
+        body.append(row);
+      }
+      table.append(body);
+      return table;
     }
-    async function runScan() {
+    function renderHosts(status) {
+      const names = (status.labHosts || '').split(',').map(host => host.trim()).filter(Boolean);
+      document.querySelector('#private').textContent = status.allowPrivateLabTargets
+        ? 'Private addresses are allowed for these hostnames.'
+        : 'Private addresses stay blocked. A public address is scanned as-is.';
+      hosts.replaceChildren();
+      if (!names.length) {
+        const empty = document.createElement('p');
+        empty.textContent = 'No lab hostname is saved.';
+        const link = document.createElement('a');
+        link.className = 'button';
+        link.href = '/';
+        link.textContent = 'Add one in setup';
+        hosts.append(empty, link);
+        return;
+      }
+      for (const name of names) {
+        const card = document.createElement('div');
+        card.className = 'host';
+        const row = document.createElement('div');
+        row.className = 'row';
+        const title = document.createElement('h3');
+        title.textContent = name;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = 'Scan';
+        const output = document.createElement('div');
+        button.addEventListener('click', () => scanHost(name, button, output));
+        row.append(title, button);
+        card.append(row, output);
+        hosts.append(card);
+      }
+    }
+    async function scanHost(host, button, output) {
       showError('');
-      again.disabled = true;
-      state.textContent = 'Running the fixture scan.';
-      const response = await fetch('/api/scan/fixture', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-      const body = await response.json();
-      if (!response.ok) { showError(body.error || 'The fixture scan failed.'); state.textContent = 'The fixture scan stopped.'; }
-      else render(body);
-      again.disabled = false;
+      button.disabled = true;
+      output.replaceChildren();
+      const note = document.createElement('p');
+      note.textContent = 'Scanning https://' + host + '/';
+      output.append(note);
+      try {
+        const response = await fetch('/api/scan/lab', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ host }),
+        });
+        const body = await response.json();
+        if (!response.ok) { showError(messageFor(body.error || 'scan_failed')); note.textContent = 'Scan stopped.'; return; }
+        note.textContent = body.contactedNetwork
+          ? 'Scan finished. Requests were sent to ' + body.host + '.'
+          : 'Scan finished. No request was sent.';
+        output.append(resultTable(body));
+      } catch {
+        showError('The scan failed.');
+        note.textContent = 'Scan stopped.';
+      } finally {
+        button.disabled = false;
+      }
     }
-    async function showLab() {
-      const response = await fetch('/api/status');
-      const status = await response.json();
-      const host = status.labHosts || '';
-      document.querySelector('#lab').textContent = host
-        ? `Saved lab hostname: ${host}. It was not scanned.`
-        : 'No lab hostname is saved.';
+    async function runFixture() {
+      const button = document.querySelector('#fixture');
+      const output = document.querySelector('#fixture-result');
+      button.disabled = true;
+      output.textContent = 'Running the fixture scan.';
+      try {
+        const response = await fetch('/api/scan/fixture', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+        const body = await response.json();
+        if (!response.ok) { output.textContent = 'The fixture scan failed.'; return; }
+        const admitted = (body.admitted || []).join(', ') || 'none';
+        const finding = body.findings?.[0];
+        output.textContent = 'Fixture finished. Admitted: ' + admitted + '. ' + (finding ? finding.code : 'No finding') + '. No network request.';
+      } catch {
+        output.textContent = 'The fixture scan failed.';
+      } finally {
+        button.disabled = false;
+      }
     }
-    again.addEventListener('click', () => { runScan().catch(() => showError('The fixture scan failed.')); });
-    showLab().catch(() => { document.querySelector('#lab').textContent = 'Saved setup could not be read.'; });
-    runScan().catch(() => showError('The fixture scan failed.'));
+    document.querySelector('#fixture').addEventListener('click', runFixture);
+    fetch('/api/status').then(response => response.json()).then(renderHosts).catch(() => showError('Saved setup could not be read.'));
   </script>
 </body>
 </html>

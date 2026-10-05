@@ -23,5 +23,5 @@ const started = await new Promise<number>((resolve, reject) => {
 });
 const url = `http://127.0.0.1:${started}/`;
 console.log(`Setup is local only: ${url}`);
-console.log('Nothing is sent to a research target. The kill switch stays on.');
+console.log('Nothing is sent until you click Scan on a saved hostname.');
 openBrowser(url);
