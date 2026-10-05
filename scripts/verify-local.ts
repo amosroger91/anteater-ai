@@ -26,6 +26,7 @@ try {
   await run(['--test','tests/integration/staging-loop.test.ts']);
   await run(['--test','tests/integration/discovery-store.test.ts']);
   await run(['--test','tests/integration/discovery-monitor.test.ts']);
+  await run(['--test','tests/integration/aggressive-lifecycle.test.ts']);
   await run(['apps/orchestrator/worker.ts','--once']);
   await run(['apps/orchestrator/demo.ts']);
   const client=postgres.getPgClient('anteater');

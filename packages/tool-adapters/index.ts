@@ -29,15 +29,25 @@ export function resolveInvocation(spec: AdapterSpec, input: Record<string, strin
 const NUCLEI_TAGS = new Set(['ssl', 'misconfig', 'exposure', 'tech']);
 export const NUCLEI: AdapterSpec = {
   id: 'nuclei', binEnv: 'NUCLEI_BIN', version: 'pinned-by-operator',
-  buildArgs: (input) => {
-    const tags = (input.tags ?? 'ssl,misconfig,exposure,tech').split(',').map(tag => tag.trim().toLowerCase()).filter(Boolean);
-    if (!tags.length || tags.some(tag => !NUCLEI_TAGS.has(tag))) throw new Error('nuclei_tags_not_allowlisted');
-    const rate = Number(input.rate ?? '1');
-    if (!Number.isInteger(rate) || rate < 1 || rate > 150) throw new Error('nuclei_rate_out_of_range');
-    return ['-u', input.url ?? '', '-jsonl', '-silent', '-disable-update-check', '-no-interactsh', '-disable-redirects',
-      '-tags', tags.join(','), '-exclude-tags', input.excludeTags ?? 'dos,intrusive,fuzz,cve,vuln', '-rate-limit', String(rate), '-timeout', '10'];
-  },
+  buildArgs: input => buildNucleiArgs(input),
 };
+
+const DEFAULT_EXCLUDE_TAGS = 'dos,intrusive,fuzz,cve,vuln';
+
+// Destructive tags are omitted only when the caller has already authorized a lab host.
+// A non-lab host cannot drop the exclude list, even if the flag is set.
+export function buildNucleiArgs(input: Record<string, string>): string[] {
+  const tags = (input.tags ?? 'ssl,misconfig,exposure,tech').split(',').map(tag => tag.trim().toLowerCase()).filter(Boolean);
+  if (!tags.length || tags.some(tag => !NUCLEI_TAGS.has(tag))) throw new Error('nuclei_tags_not_allowlisted');
+  const rate = Number(input.rate ?? '1');
+  if (!Number.isInteger(rate) || rate < 1 || rate > 150) throw new Error('nuclei_rate_out_of_range');
+  const destructive = input.destructive === 'true';
+  if (destructive && input.labAuthorized !== 'true') throw new Error('nuclei_destructive_refused');
+  const args = ['-u', input.url ?? '', '-jsonl', '-silent', '-disable-update-check', '-no-interactsh', '-disable-redirects', '-tags', tags.join(',')];
+  if (!destructive) args.push('-exclude-tags', input.excludeTags ?? DEFAULT_EXCLUDE_TAGS);
+  args.push('-rate-limit', String(rate), '-timeout', '10');
+  return args;
+}
 
 export const REGISTRY: Record<string, AdapterSpec> = { nuclei: NUCLEI };
 

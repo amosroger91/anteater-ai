@@ -1,7 +1,7 @@
 import type pg from 'pg';
 import { createHash, randomUUID } from 'node:crypto';
 import type { AnalysisFailure, AnalysisRun } from '../agent-runtime/index.js';
-import { verifyCandidate, type Responder, type State } from '../findings/index.js';
+import { transition, verifyCandidate, type Responder, type State } from '../findings/index.js';
 import { transaction } from './db.js';
 import { authorize, PolicySchema, targetForAction, type Action } from '../scope-engine/index.js';
 import { followUpActions, jobKey } from '../web-executor/planning.js';
@@ -197,6 +197,17 @@ export async function recordReplay(pool: pg.Pool, programId: string, from: State
     await c.query(`INSERT INTO evidence(id,finding_id,sha256,body) VALUES($1,$2,$3,$4)`, [randomUUID(), id, sha, JSON.stringify(evidenceBody)]);
   });
   return { id, next: result.next, reproduced: result.outcome.reproduced };
+}
+
+// A scanner may raise HUMAN_REVIEW. It cannot write VERIFIED or SUBMITTED.
+export async function recordScannerFinding(pool: pg.Pool, programId: string, finding: { template: string; location: string; severity: string }) {
+  const review = ['medium', 'high', 'critical'].includes(finding.severity);
+  if (review && !transition('CANDIDATE', 'HUMAN_REVIEW', 'scanner').ok) throw new Error('scanner_cannot_review');
+  const id = randomUUID();
+  await pool.query(`INSERT INTO findings(id,program_id,status,body) VALUES($1,$2,$3,$4)`, [id, programId, review ? 'HUMAN_REVIEW' : 'OBSERVATION', JSON.stringify({
+    findingType: 'nuclei', location: finding.location, severity: finding.severity, template: finding.template, confidence: review ? 0.4 : 0.2,
+  })]);
+  return { id, status: review ? 'HUMAN_REVIEW' as const : 'OBSERVATION' as const };
 }
 
 export async function submitFinding(pool: pg.Pool, findingId: string, reviewer: string) {

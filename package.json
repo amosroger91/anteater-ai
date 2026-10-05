@@ -26,6 +26,7 @@
     "gate": "tsx scripts/gate.ts",
     "campaign": "tsx scripts/campaign.ts",
     "monitor": "tsx scripts/monitor.ts",
+    "aggressive": "tsx scripts/aggressive.ts",
     "retention:sweep": "tsx scripts/retention-sweep.ts",
     "finding:submit": "tsx scripts/submit-finding.ts",
     "bounty:fetch": "tsx scripts/bounty-inbox.ts fetch",
