@@ -89,18 +89,24 @@ Use a normal clone followed by `deps:sync`; recursive submodule cloning can down
 
 ## Current implementation and next steps
 
+Phases 0 and 1 of the [bounty earnings plan](docs/BOUNTY_EARNINGS_PLAN.md) are in this checkout. They are local code with fixture proof. They are not production operation. The Phase 1 exit — three real programs compiled and approved by a named human — is not met. No live platform call was made.
+
 | In the current checkout | Still needed for production |
 | --- | --- |
-| Reviewed domain-list profile, root-job worker, bounded passive HTTPS collector and PostgreSQL leases | Authenticated policy approval, discovery-to-queue wiring, independent egress enforcement and scheduled revisits |
-| Opt-in Playwright research with two isolated accounts, identity checks, optional encrypted generated accounts and IMAP verification | Real owned-staging validation, role-aware credential service, account lifecycle, and verified browser/network isolation |
-| Configured owner-resource replay with negative controls and marker-based cleanup | Broader route/role coverage, live cleanup proof, persistent reviewer decisions and scheduled retests |
-| Eight passive posture coverage checks, a 13-reference WSTG/ASVS registry, fixture gates, API inventory and offline analyzers | Broader methodology coverage and integration of checks/inventory into the live campaign |
-| Deterministic finding/retest helpers, remediation text, evidence hashes and audit data | End-to-end finding lifecycle, evidence key management, human identity and impact-ranked reports |
+| Reviewed domain-list profile, live campaign planner, bounded passive HTTPS collector, process egress checks, and PostgreSQL leases | Host and container egress isolation, and scheduled revisits of hosts already admitted |
+| HackerOne intake limited to `https://api.hackerone.com`: injectable fetch, automation class, hash-checked approval, and `program_approvals` | A named human approving three real handles. The library does not call the live API and does not read credentials from the environment |
+| Lab staging loop: a seeded IDOR is reproduced, the patched variant is rejected, and `SUBMITTED` requires a human reviewer | Broader route and role coverage, live cleanup proof, and impact-ranked reports |
+| Opt-in Playwright research with two isolated accounts, identity checks, optional encrypted generated accounts and IMAP verification | Real owned-staging validation beyond the lab fixture, role-aware credential service, account lifecycle, and verified browser/network isolation |
+| Eight passive posture coverage checks, a 13-reference WSTG/ASVS registry, fixture gates, API inventory and offline analyzers | Broader methodology coverage and integration of checks into the live campaign |
+| Deterministic replay for `VERIFIED`, and a human actor plus reviewer name for `SUBMITTED` | Evidence key management |
+| Certificate-transparency, passive DNS, and Subfinder adapters as injectable candidate sources | A budgeted scheduler that admits only signed hosts and enqueues only newly exposed in-scope names (Phase 2) |
 | 29 pinned source/data dependencies and update checks | Reviewed runtime tool adapters, authenticated MCP, operational monitoring and recovery drills |
 
-The checked-in Kali container is an inert, network-disabled boundary demonstration. `ENABLE_PASSIVE_HTTP=true` enables only the reviewed read-only worker adapter. Application research additionally requires `ENABLE_APPLICATION_RESEARCH=true`; login, signup, resource creation and replay require `ALLOW_ACTIVE_TESTING=true` plus explicit profile paths. These switches do not replace host/container egress isolation. Findings submission remains a human-reviewed future stage.
+`GLOBAL_KILL_SWITCH` stays default-on. `ENABLE_PASSIVE_HTTP` and `ENABLE_APPLICATION_RESEARCH` stay default-off. `ALLOW_PRIVATE_LAB_TARGETS` admits a private address only for a hostname listed in `LAB_TARGET_HOSTS` while that flag is on. Loopback and link-local addresses stay blocked. These phases do not contact a real bug-bounty program.
 
-The latest post-change check passed the TypeScript build and **127 unit tests**. Before the latest marker-cleanup change, **3 browser tests** and **14 PostgreSQL integration tests** passed, and the registry check verified all 29 pinned dependencies. The browser suite was not rerun after that change; its new malformed-create-response cleanup case remains unverified. Browser tests use real Chromium with an injected synthetic application transport and mailbox; no research target, real login, or real mailbox was tested. See [validation details](docs/VALIDATION.md), the [production roadmap](docs/PRODUCTION_ROADMAP.md), and [readiness gates](docs/READINESS.md). Native PostgreSQL provided the local integration-test path; local Docker runtime and real model inference remain unverified.
+The checked-in Kali container is an inert, network-disabled boundary demonstration. `ENABLE_PASSIVE_HTTP=true` enables only the reviewed read-only worker adapter. Application research additionally requires `ENABLE_APPLICATION_RESEARCH=true`; login, signup, resource creation and replay require `ALLOW_ACTIVE_TESTING=true` plus explicit profile paths. These switches do not replace host/container egress isolation.
+
+The latest post-change check on this branch passed `npm run build`, **153 unit tests**, `npm run gate` (5 cases, 0 false positives), and `npm run verify:local` (state, program intake, staging loop, and one fixture replay). The browser suite was not rerun; these phases did not change browser tests. Browser tests use real Chromium with an injected synthetic application transport and mailbox. No research target, real login, or real mailbox was tested. See [validation details](docs/VALIDATION.md), the [production roadmap](docs/PRODUCTION_ROADMAP.md), and [readiness gates](docs/READINESS.md). Native PostgreSQL provided the local integration-test path; local Docker runtime and real model inference remain unverified.
 
 ## Quick start
 
@@ -177,13 +183,14 @@ Without Docker, `npm run verify:local` starts temporary PostgreSQL, runs integra
 | `npm run posture:scan -- <csv> --policy=<json>` | Policy-bound posture scan; one URL per row |
 | `npm run posture:check -- <url>` | Read-only check of one host, outside the CSV |
 
-Without `--once`, the worker drains follow-ups/retries and sweeps pending exports until stopped. It loads manifests once at startup. Completed targets are not periodically rescanned; new reviewed revisions produce new jobs. The `research` entry point scans only submitted roots; discovery adapters are not yet wired into it. A profile's `reviewed: true` field is operator input, not authenticated proof of approval. See [reviewed manifest setup](docs/OPERATIONS.md#reviewed-program-worker). Authenticated HTTP/MCP control remains future work.
+Without `--once`, the worker drains follow-ups/retries and sweeps pending exports until stopped. It loads manifests once at startup. Completed targets are not periodically rescanned; new reviewed revisions produce new jobs. The `research` entry point scans only submitted roots. Certificate-transparency, passive DNS, and Subfinder adapters return candidates in tests; they are not wired into `npm run research` or a scheduler yet. A profile's `reviewed: true` field is operator input, not authenticated proof of approval. See [reviewed manifest setup](docs/OPERATIONS.md#reviewed-program-worker). Authenticated HTTP/MCP control remains future work.
 
 ## Project structure
 
 ```text
-apps/orchestrator/       fixture demo and concurrent worker
+apps/orchestrator/       fixture demo, concurrent worker, and live campaign planner
 packages/application-research/ bounded browser sessions, accounts, mailbox and ownership replay
+packages/program-intake/ HackerOne fetch, automation class, and reviewed compile
 packages/discovery/     candidate discovery, scope admission and adapters
 packages/coverage/      WSTG/ASVS check registry and coverage reports
 packages/findings/      replay contracts, finding states, chains and retest helper
