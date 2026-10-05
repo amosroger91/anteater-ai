@@ -13,6 +13,12 @@ const GUIDANCE: Record<string, Remediation> = {
   weak_cookie_flags: { summary: 'Session cookie missing security attributes.', fix: 'Set Secure, HttpOnly and SameSite on session cookies.', reference: 'OWASP WSTG-SESS-02' },
   tls_outdated_protocol: { summary: 'Outdated TLS protocol negotiated.', fix: 'Disable TLS 1.0/1.1; require TLS 1.2+ with modern ciphers.', reference: 'OWASP WSTG-CRYP-01' },
   cross_account_read: { summary: 'A user can read another account’s resource.', fix: 'Enforce object-level authorization on every read; derive ownership server-side, never from client input.', reference: 'OWASP WSTG-ATHZ / ASVS V4' },
+  subdomain_takeover: { summary: 'A dangling name serves an unclaimed-service page.', fix: 'Remove the dangling DNS record or claim the service. Do not leave a CNAME pointed at an unclaimed name.', reference: 'OWASP WSTG-CONF-10' },
+  exposed_vcs: { summary: 'A source-control or environment file is served.', fix: 'Stop publishing /.git, /.env, and /.DS_Store. Rotate any credential that was in the file.', reference: 'OWASP WSTG-CONF-04' },
+  exposed_admin: { summary: 'A privileged admin or debug page is public.', fix: 'Require authentication on admin, debug, and actuator routes, or remove them from the public host.', reference: 'OWASP WSTG-CONF-05' },
+  cors_credentialed: { summary: 'Credentialed CORS reflects another origin.', fix: 'Allow credentials only for an explicit origin allow-list. Do not copy the request Origin into Access-Control-Allow-Origin.', reference: 'OWASP WSTG-CLNT-07' },
+  open_redirect_to_takeover: { summary: 'An auth or token route redirects off the request host.', fix: 'Keep login, OAuth, and token redirects on a server-side allow-list of same-host paths.', reference: 'OWASP WSTG-CLNT-04' },
+  secrets_in_js: { summary: 'Served JavaScript matches a live-looking key pattern.', fix: 'Remove the key from client code, rotate it, and load secrets only on the server.', reference: 'OWASP WSTG-INFO-05' },
 };
 
 const FALLBACK: Remediation = { summary: 'Reviewed finding.', fix: 'See the mapped methodology entry for guidance.', reference: 'OWASP WSTG/ASVS' };

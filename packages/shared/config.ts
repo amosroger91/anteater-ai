@@ -9,8 +9,13 @@ const schema = z.object({
   ALLOW_ACTIVE_TESTING: bool('false'),
   ENABLE_PASSIVE_HTTP: bool('false'),
   ENABLE_APPLICATION_RESEARCH: bool('false'),
+  // Lab-only: relax the private-IP egress guard for an explicit allow-list of owned test hosts.
+  // Must be wired so it NEVER affects a non-lab program (see BOUNTY_EARNINGS_PLAN.md Phase 0).
+  ALLOW_PRIVATE_LAB_TARGETS: bool('false'),
+  LAB_TARGET_HOSTS: z.string().default(''),
   CREDENTIAL_STORE: z.string().default('secrets/accounts'),
   ACCOUNT_KEY: z.string().regex(/^[a-fA-F0-9]{64}$/).optional(),
+  EVIDENCE_KEY: z.string().regex(/^[a-fA-F0-9]{64}$/).optional(),
   PROGRAM_SOURCE: z.enum(['fixture', 'file']).default('fixture'),
   PROGRAMS_FILE: z.string().min(1).optional(),
   MAX_CONCURRENT_JOBS: z.coerce.number().int().min(1).max(16).default(1),

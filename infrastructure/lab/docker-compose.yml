@@ -1,0 +1,31 @@
+# Deterministic Phase-0 lab: a seeded vulnerable app and its patched twin behind Caddy TLS.
+# Known-answer fixtures for the detector gate and the end-to-end loop proof. Never expose publicly.
+#   docker compose -f infrastructure/lab/docker-compose.yml up -d
+services:
+  vuln:
+    image: node:20-alpine
+    working_dir: /app
+    volumes: ["./app.mjs:/app/app.mjs:ro"]
+    environment: { VARIANT: vulnerable, PORT: "3000" }
+    command: ["node", "app.mjs"]
+    networks: [lab]
+  patched:
+    image: node:20-alpine
+    working_dir: /app
+    volumes: ["./app.mjs:/app/app.mjs:ro"]
+    environment: { VARIANT: patched, PORT: "3000" }
+    command: ["node", "app.mjs"]
+    networks: [lab]
+  caddy:
+    image: caddy:2
+    depends_on: [vuln, patched]
+    volumes:
+      - "./Caddyfile:/etc/caddy/Caddyfile:ro"
+      - "caddy_data:/data"   # holds the internal CA root to export for NODE_EXTRA_CA_CERTS
+    ports: ["443:443"]
+    networks: [lab]
+networks:
+  lab:
+    driver: bridge
+volumes:
+  caddy_data:

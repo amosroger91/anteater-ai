@@ -3,11 +3,26 @@ import type { Config } from '../shared/config.js';
 import { ActionSchema, authorize, PolicySchema, targetForAction } from '../scope-engine/index.js';
 import { acquireRate, type Job } from '../research-state/jobs.js';
 import { log } from '../shared/log.js';
-import { executePassiveHttp } from '../web-executor/index.js';
+import { executePassiveHttp, parseLabTargetAllow, type PassiveDeps } from '../web-executor/index.js';
+import type { ResearchDeps } from '../application-research/index.js';
+import { ProgramBudget } from '../budget/index.js';
 import { setTimeout as sleep } from 'node:timers/promises';
 
+export interface GatewayExecutors { passive?: PassiveDeps; research?: ResearchDeps }
 export class ToolGateway {
-  constructor(private pool: pg.Pool, private config: () => Config) {}
+  private budgets = new Map<string, ProgramBudget>();
+  constructor(private pool: pg.Pool, private config: () => Config, private executors: GatewayExecutors = {}) {}
+  private applicationBudget(programId: string, requestsPerSecond: number): ProgramBudget {
+    const existing = this.budgets.get(programId);
+    if (existing) return existing;
+    const rate = Math.max(requestsPerSecond, 0.001);
+    const budget = new ProgramBudget({
+      globalRatePerSec: rate, perHostRatePerSec: rate, concurrency: Math.max(1, this.config().MAX_CONCURRENT_JOBS),
+      bodyCapBytes: this.config().MAX_RESPONSE_BYTES, timeoutMs: 15000,
+    });
+    this.budgets.set(programId, budget);
+    return budget;
+  }
   async invoke(job: Job, tool: string, assetId: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
     const config = this.config();
     if (config.GLOBAL_KILL_SWITCH) throw new Error('kill_switch');
@@ -46,23 +61,34 @@ export class ToolGateway {
     };
     if (application) {
       const { researchApplication } = await import('../application-research/index.js');
+      const host = new URL(target).hostname;
       return researchApplication(new URL(target).origin, policy.application!, config, async requestSignal => {
         while (true) {
           requestSignal.throwIfAborted();
+          const budget = this.applicationBudget(job.program_id, policy.requestsPerSecond);
+          if (!budget.allow(host).ok) {
+            await sleep(100, undefined, { signal: requestSignal });
+            continue;
+          }
+          let limited = false;
           try { await reserve(); return; }
           catch (error) {
             if (!(error instanceof Error) || error.message !== 'rate_limited') throw error;
-            await sleep(100, undefined, { signal: requestSignal });
-          }
+            limited = true;
+          } finally { budget.done(); }
+          if (limited) await sleep(100, undefined, { signal: requestSignal });
         }
-      }, signal);
+      }, signal, this.executors.research);
     }
     if (fixture) {
       await reserve();
       log('TOOL_EXECUTED',{program:job.program_id,job:job.id,asset:assetId,result:'fixture'});
       return { kind:'OBSERVATION', fixture:true, assetId, target, status:200, headers:{ 'content-type':'application/json' }, note:'Synthetic response; no network request performed.' };
     }
-    const observation = await executePassiveHttp(target, { maxBytes: config.MAX_RESPONSE_BYTES, signal, beforeRequest: reserve });
+    const observation = await executePassiveHttp(target, {
+      maxBytes: config.MAX_RESPONSE_BYTES, signal, beforeRequest: reserve, deps: this.executors.passive,
+      labTargets: parseLabTargetAllow(config.ALLOW_PRIVATE_LAB_TARGETS, config.LAB_TARGET_HOSTS),
+    });
     log('TOOL_EXECUTED',{program:job.program_id,job:job.id,asset:assetId,result:'http-passive'});
     return { ...observation, assetId };
   }

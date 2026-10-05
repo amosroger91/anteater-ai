@@ -35,7 +35,25 @@ export class OllamaProvider implements LLMProvider {
     if (!modelDigest || !/^sha256:[a-f0-9]{64}$/i.test(modelDigest)) throw new Error('model_digest_required');
   }
 
+  private async verifiedDigest(): Promise<string> {
+    const expected = this.modelDigest!.toLowerCase();
+    let response: Response;
+    try {
+      response = await fetch(new URL('/api/show', this.baseUrl), {
+        method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000), headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: this.model }),
+      });
+    } catch { throw new Error('model_digest_unavailable'); }
+    if (!response.ok) throw new Error('model_digest_unavailable');
+    const parsed = z.object({ digest: z.string().optional() }).passthrough().safeParse(await response.json().catch(() => null));
+    const digest = parsed.success ? parsed.data.digest?.toLowerCase() : undefined;
+    if (!digest || !/^sha256:[a-f0-9]{64}$/.test(digest)) throw new Error('model_digest_unavailable');
+    if (digest !== expected) throw new Error('model_digest_mismatch');
+    return digest;
+  }
+
   async generate(request: LLMRequest): Promise<LLMResponse> {
+    const modelDigest = await this.verifiedDigest();
     if (request.system.length + request.input.length > 12000) throw new Error('context_budget_exceeded');
     const response = await fetch(new URL('/api/chat', this.baseUrl), {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(60000), headers: { 'content-type': 'application/json' },
@@ -63,7 +81,7 @@ export class OllamaProvider implements LLMProvider {
     return {
       text: body.message.content,
       model: body.model ?? this.model,
-      modelDigest: this.modelDigest,
+      modelDigest,
       doneReason: body.done_reason,
       thinking: body.message.thinking,
       promptEvalCount: body.prompt_eval_count,

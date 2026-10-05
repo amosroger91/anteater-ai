@@ -9,6 +9,7 @@ export class BrowserSession {
   readonly visited = new Set<string>();
   readonly inventory: PageInventory[] = [];
   readonly errors: string[] = [];
+  fatal?: string;
   private authorization?: string;
   private pending = new Set<Promise<unknown>>();
   private constructor(readonly id: string, readonly context: BrowserContext, readonly page: Page, readonly gate: RequestGate) {}
@@ -39,6 +40,7 @@ export class BrowserSession {
           await route.fulfill({ status: result.status, headers: responseHeaders, body: result.body });
         } catch (error) {
           const code = error instanceof Error && /^[a-z_]+$/.test(error.message) ? error.message : 'request_failed';
+          if (code === 'kill_switch') session.fatal = code;
           if (session.errors.length < 50) session.errors.push(code);
           await route.abort().catch(() => {});
         }
@@ -72,7 +74,7 @@ export class BrowserSession {
   }
   async crawl(start: string, app: Application) {
     const queue = [{ url: start, depth: 0 }]; const queued = new Set([start]);
-    while (queue.length && this.visited.size < app.maxPages && !this.gate.signal.aborted && this.gate.count < app.maxRequests) {
+    while (queue.length && !this.fatal && this.visited.size < app.maxPages && !this.gate.signal.aborted && this.gate.count < app.maxRequests) {
       const next = queue.shift()!;
       const item = await this.visit(next.url); if (!item || next.depth >= app.maxDepth) continue;
       for (const value of item.links) {

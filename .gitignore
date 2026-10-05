@@ -7,7 +7,7 @@ secrets/
 certs/
 *.pem
 *.key
-coverage/
+/coverage/
 programs/*
 !programs/.gitkeep
 *.log

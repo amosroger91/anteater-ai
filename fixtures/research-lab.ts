@@ -3,8 +3,12 @@ import { once } from 'node:events';
 import { randomBytes } from 'node:crypto';
 import type { Exchange } from '../packages/application-research/transport.js';
 
-export async function startResearchLab(options: { vulnerable?: boolean; challenge?: boolean; signup?: boolean; tokenAuth?: boolean; missingIdOnCreate?: boolean } = {}) {
-  const users = new Map<string, { password: string; verified: boolean }>([['alice@example.test', { password: 'alice-password', verified: true }], ['bob@example.test', { password: 'bob-password', verified: true }]]);
+export async function startResearchLab(options: { vulnerable?: boolean; challenge?: boolean; signup?: boolean; tokenAuth?: boolean; missingIdOnCreate?: boolean; egressProbes?: boolean } = {}) {
+  const users = new Map<string, { password: string; verified: boolean }>([
+    ['alice@example.test', { password: 'alice-password', verified: true }],
+    ['bob@example.test', { password: 'bob-password', verified: true }],
+    ['admin@example.test', { password: 'admin-password', verified: true }],
+  ]);
   const sessions = new Map<string, string>();
   const records = new Map<string, { owner: string; title: string }>();
   const verification = new Map<string, string>();
@@ -62,7 +66,12 @@ export async function startResearchLab(options: { vulnerable?: boolean; challeng
     }
     if (path === '/dashboard' && !user) { res.writeHead(302, { location: '/login' }); res.end(); return; }
     if (path === '/api/catalog') { json(200, { products: [] }); return; }
-    if (path === '/') { html(`<a href="/login">Log in</a>${options.signup ? '<a href="/register">Create account</a>' : ''}<a href="/dashboard">Dashboard</a><a href="https://outside.test/leak">Outside</a><script>fetch('/api/catalog');fetch('https://outside.test/leak').catch(()=>{});</script>`); return; }
+    if (path === '/') {
+      const probes = options.egressProbes
+        ? '<iframe src="https://outside.test/frame"></iframe><script src="https://outside.test/sub.js"></script><script>fetch("https://outside.test/sub").catch(()=>{});try{new Worker("https://outside.test/worker.js")}catch(e){}try{new WebSocket("wss://outside.test/socket")}catch(e){}</script>'
+        : '';
+      html(`<a href="/login">Log in</a>${options.signup ? '<a href="/register">Create account</a>' : ''}<a href="/dashboard">Dashboard</a><a href="https://outside.test/leak">Outside</a><script>fetch('/api/catalog');fetch('https://outside.test/leak').catch(()=>{});</script>${probes}`); return;
+    }
     if (path === '/dashboard') { html('<h1>Private dashboard</h1><a href="/logout">Log out</a><script>fetch("/api/me")</script>'); return; }
     json(404, {});
   });

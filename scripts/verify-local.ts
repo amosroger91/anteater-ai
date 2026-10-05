@@ -22,6 +22,14 @@ try {
   await postgres.createDatabase('anteater');
   console.log('Temporary PostgreSQL ready on loopback.');
   await run(['--test','tests/integration/state.test.ts']);
+  await run(['--test','tests/integration/program-intake.test.ts']);
+  await run(['--test','tests/integration/staging-loop.test.ts']);
+  await run(['--test','tests/integration/discovery-store.test.ts']);
+  await run(['--test','tests/integration/discovery-monitor.test.ts']);
+  await run(['--test','tests/integration/aggressive-lifecycle.test.ts']);
+  await run(['--test','tests/integration/triage-report.test.ts']);
+  await run(['--test','tests/integration/fleet-ledger.test.ts']);
+  await run(['--test','tests/integration/paid-reads.test.ts']);
   await run(['apps/orchestrator/worker.ts','--once']);
   await run(['apps/orchestrator/demo.ts']);
   const client=postgres.getPgClient('anteater');

@@ -89,18 +89,27 @@ Use a normal clone followed by `deps:sync`; recursive submodule cloning can down
 
 ## Current implementation and next steps
 
+Phases 0 through 6 of the [bounty earnings plan](docs/BOUNTY_EARNINGS_PLAN.md) are in this checkout as local code with fixture proof. They are not production operation, and the plan's definition of done is not met. The Phase 1 exit — three real programs compiled and approved by a named human — is not met. On 2026-10-05 the environment had no HackerOne token, username, or named approver, so no live platform call was made and no approval was invented. The Phase 6 exit — sustained operation across 10 or more live programs, and a kill-or-pivot decision on real paid amounts — is not met. The scheduler and ledger below are fixture proof.
+
 | In the current checkout | Still needed for production |
 | --- | --- |
-| Reviewed domain-list profile, root-job worker, bounded passive HTTPS collector and PostgreSQL leases | Authenticated policy approval, discovery-to-queue wiring, independent egress enforcement and scheduled revisits |
-| Opt-in Playwright research with two isolated accounts, identity checks, optional encrypted generated accounts and IMAP verification | Real owned-staging validation, role-aware credential service, account lifecycle, and verified browser/network isolation |
-| Configured owner-resource replay with negative controls and marker-based cleanup | Broader route/role coverage, live cleanup proof, persistent reviewer decisions and scheduled retests |
-| Eight passive posture coverage checks, a 13-reference WSTG/ASVS registry, fixture gates, API inventory and offline analyzers | Broader methodology coverage and integration of checks/inventory into the live campaign |
-| Deterministic finding/retest helpers, remediation text, evidence hashes and audit data | End-to-end finding lifecycle, evidence key management, human identity and impact-ranked reports |
+| Reviewed domain-list profile, live campaign planner, bounded passive HTTPS collector, process egress checks, and PostgreSQL leases | Host and container egress isolation, and scheduled revisits of hosts already admitted |
+| HackerOne intake limited to `https://api.hackerone.com`: injectable fetch, automation class, hash-checked approval, and `program_approvals` | A named human approving three real handles. The library does not call the live API and does not read credentials from the environment |
+| Lab staging loop: a seeded IDOR is reproduced, the patched variant is rejected, and `SUBMITTED` requires a human reviewer | Impact-ranked reports and a human submission against a real program |
+| Role-labeled accounts (two ordinary users and one least-privileged admin). Ownership probes build a matrix and a contract, then replay it through isolated sessions. Cross-user and cross-tenant reads are found on the vulnerable lab fixture, rejected on the patched fixture, and deleted by marker even when create returns no id | Real owned-staging validation beyond the lab fixture, and a credential service outside this checkout |
+| `npm run aggressive` refuses unless the host is in `LAB_TARGET_HOSTS` and the operator passes `--snapshot-confirmed` and `--n8n-attested`. Nuclei stays on allowlisted tags with `dos,intrusive,fuzz,cve,vuln` excluded. Dropping that exclude list requires the lab host, `--allow-destructive`, and the snapshot attestation, and it records a `qm rollback` audit event. A stubbed JSONL line is stored as `HUMAN_REVIEW`, not `VERIFIED` | No Nuclei binary was executed, and nothing was sent to 192.168.60.26 |
+| Campaign coverage is written to the audit chain. Replay evidence can be sealed with `EVIDENCE_KEY`. `renderReport` drafts impact, reproduction, and remediation without response bodies. `npm run triage` lists the queue. `npm run finding:submit -- --id= --reviewer=` submits one. A prior submission with the same program, type, and location hides the duplicate. An outage or failed control on retest is inconclusive | A human submitting against a real automation-permitted program |
+| `npm run fleet` is a dry pass over automation-permitted programs. It honors kill, revocation, and budgets, dead-letters a non-retryable failure, and does not call tools. `npm run metrics` prints queue age, coverage gaps, rate-limit hits, tool and mailbox failures, and dead letters. `npm run backup` and `npm run restore` round-trip the submissions and dead-letter tables. An expired job lease can be claimed again. `npm run ledger` computes net as paid minus human-hours times rate minus infra from rows in `submissions` | Ten or more live programs, recorded payouts, and the production readiness boxes |
+| Fourteen coverage checks and a 20-reference WSTG/ASVS registry. The live campaign reads `/.git/config`, `/.env`, and `/.DS_Store` only when the reviewed policy lists that exact path, and stores a matching signature as `OBSERVATION`. Takeover, public admin content, credentialed CORS, auth redirects, and keys in JavaScript stay gaps until those observations exist. Missing security headers are `info` | The worker process still does not issue those reads. A header nit is not a submission |
+| Deterministic replay for `VERIFIED`, and a human actor plus reviewer name for `SUBMITTED` | Evidence key management |
+| Budgeted discovery monitor for automation-permitted programs: certificate transparency, passive DNS, and Subfinder stay injectable; only a newly exposed in-scope host is queued | The monitor does not fetch a discovered host. A later worker does, and only for a queued in-scope asset |
 | 29 pinned source/data dependencies and update checks | Reviewed runtime tool adapters, authenticated MCP, operational monitoring and recovery drills |
 
-The checked-in Kali container is an inert, network-disabled boundary demonstration. `ENABLE_PASSIVE_HTTP=true` enables only the reviewed read-only worker adapter. Application research additionally requires `ENABLE_APPLICATION_RESEARCH=true`; login, signup, resource creation and replay require `ALLOW_ACTIVE_TESTING=true` plus explicit profile paths. These switches do not replace host/container egress isolation. Findings submission remains a human-reviewed future stage.
+`GLOBAL_KILL_SWITCH` stays default-on. `ENABLE_PASSIVE_HTTP` and `ENABLE_APPLICATION_RESEARCH` stay default-off. `ALLOW_PRIVATE_LAB_TARGETS` admits a private address only for a hostname listed in `LAB_TARGET_HOSTS` while that flag is on. Loopback and link-local addresses stay blocked. These phases do not contact a real bug-bounty program.
 
-The latest post-change check passed the TypeScript build and **127 unit tests**. Before the latest marker-cleanup change, **3 browser tests** and **14 PostgreSQL integration tests** passed, and the registry check verified all 29 pinned dependencies. The browser suite was not rerun after that change; its new malformed-create-response cleanup case remains unverified. Browser tests use real Chromium with an injected synthetic application transport and mailbox; no research target, real login, or real mailbox was tested. See [validation details](docs/VALIDATION.md), the [production roadmap](docs/PRODUCTION_ROADMAP.md), and [readiness gates](docs/READINESS.md). Native PostgreSQL provided the local integration-test path; local Docker runtime and real model inference remain unverified.
+The checked-in Kali container is an inert, network-disabled boundary demonstration. `ENABLE_PASSIVE_HTTP=true` enables only the reviewed read-only worker adapter. Application research additionally requires `ENABLE_APPLICATION_RESEARCH=true`; login, signup, resource creation and replay require `ALLOW_ACTIVE_TESTING=true` plus explicit profile paths. These switches do not replace host/container egress isolation.
+
+The latest post-change check on this branch passed `npm run build`, **169 unit tests**, `npm run gate` (11/11, 0 false positives), and `npm run verify:local` (including the authorized source-file observation, the fleet ledger, backup restore, and crash recovery). The browser suite was last run for the ownership probes (5 tests) and was not re-run after that. No research target, real login, or real mailbox was tested. `npm run aggressive` was not pointed at a live host. The `docs/READINESS.md` production boxes were not checked. See [validation details](docs/VALIDATION.md), the [production roadmap](docs/PRODUCTION_ROADMAP.md), and [readiness gates](docs/READINESS.md). Native PostgreSQL provided the local integration-test path; local Docker runtime and real model inference remain unverified.
 
 ## Quick start
 
@@ -163,6 +172,7 @@ Without Docker, `npm run verify:local` starts temporary PostgreSQL, runs integra
 | `npm run db:migrate` | Apply ordered, idempotent schema migrations |
 | `npm run demo` | One bounded fixture iteration; explicit kill-switch override required |
 | `npm run worker -- --once` | Seed reviewed root jobs and process one bounded batch with lease heartbeats |
+| `npm run monitor -- --once` | One discovery cycle for automation-permitted programs. Refuses to start while `GLOBAL_KILL_SWITCH` is true. Certificate transparency uses only `https://crt.sh`. Subfinder runs only when `SUBFINDER_BIN` is an absolute path. The default passive-DNS resolver returns no names |
 | `npm run research -- --domains=<file> --profile=<file>` | Queue the submitted domains using a reviewed research profile; application research must be explicitly enabled |
 | `npm run test:browser` | Chromium integration tests against the synthetic research lab |
 | `npm run models:inspect` | Detect NVIDIA VRAM and display conservative setup guidance |
@@ -177,14 +187,16 @@ Without Docker, `npm run verify:local` starts temporary PostgreSQL, runs integra
 | `npm run posture:scan -- <csv> --policy=<json>` | Policy-bound posture scan; one URL per row |
 | `npm run posture:check -- <url>` | Read-only check of one host, outside the CSV |
 
-Without `--once`, the worker drains follow-ups/retries and sweeps pending exports until stopped. It loads manifests once at startup. Completed targets are not periodically rescanned; new reviewed revisions produce new jobs. The `research` entry point scans only submitted roots; discovery adapters are not yet wired into it. A profile's `reviewed: true` field is operator input, not authenticated proof of approval. See [reviewed manifest setup](docs/OPERATIONS.md#reviewed-program-worker). Authenticated HTTP/MCP control remains future work.
+Without `--once`, the worker drains follow-ups/retries and sweeps pending exports until stopped. It loads manifests once at startup. Completed targets are not periodically rescanned; new reviewed revisions produce new jobs. The `research` entry point scans only submitted roots. `npm run monitor` is the discovery scheduler: it records every observed name and queues a passive check only for a newly exposed host the signed policy admits. A denied budget, a revoked program, or the database kill switch skips that cycle before a source is called. A profile's `reviewed: true` field is operator input, not authenticated proof of approval. See [reviewed manifest setup](docs/OPERATIONS.md#reviewed-program-worker). Authenticated HTTP/MCP control remains future work.
 
 ## Project structure
 
 ```text
-apps/orchestrator/       fixture demo and concurrent worker
+apps/orchestrator/       fixture demo, concurrent worker, and live campaign planner
 packages/application-research/ bounded browser sessions, accounts, mailbox and ownership replay
-packages/discovery/     candidate discovery, scope admission and adapters
+packages/program-intake/ HackerOne fetch, automation class, and reviewed compile
+packages/discovery/     candidate discovery, scope admission, budgets, history, and the monitor cycle
+scripts/monitor.ts       scheduled discovery; does not contact a held host
 packages/coverage/      WSTG/ASVS check registry and coverage reports
 packages/findings/      replay contracts, finding states, chains and retest helper
 packages/scope-engine/  conservative deterministic authorization

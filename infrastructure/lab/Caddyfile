@@ -1,0 +1,15 @@
+# Terminates TLS on 443 with Caddy's internal CA so Node can validate with NODE_EXTRA_CA_CERTS
+# (keeps rejectUnauthorized:true — no cert-validation bypass). Two hostnames, two variants.
+{
+	auto_https disable_redirects
+}
+
+lab-vuln.anteater.test {
+	tls internal
+	reverse_proxy vuln:3000
+}
+
+lab-patched.anteater.test {
+	tls internal
+	reverse_proxy patched:3000
+}

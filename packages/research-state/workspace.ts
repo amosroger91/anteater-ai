@@ -6,15 +6,37 @@ import { transaction } from './db.js';
 import { PolicySchema } from '../scope-engine/index.js';
 import { ProgramSchema, type Program } from '../bounty-providers/index.js';
 
-export async function saveProgram(pool: pg.Pool, program: Program) {
+export interface ProgramIntakeRecord {
+  automationPolicy: 'permitted' | 'manual-only' | 'prohibited';
+  platformHandle: string;
+  approver: string;
+  sourceSha256: string;
+  approvedAt: string;
+  revision: string;
+}
+
+export async function saveProgram(pool: pg.Pool, program: Program, intake?: ProgramIntakeRecord) {
   program = ProgramSchema.parse(program);
   const policy = PolicySchema.parse(program.policy);
   if (policy.programId !== program.id) throw new Error('policy_program_mismatch');
+  if (intake) {
+    if (intake.automationPolicy === 'prohibited') throw new Error('automation_prohibited');
+    if (intake.automationPolicy === 'manual-only' && policy.allowedActions.includes('research_application')) throw new Error('research_application_forbidden');
+    if (!/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/.test(intake.platformHandle)) throw new Error('invalid_platform_handle');
+    if (!/^[0-9a-f]{64}$/.test(intake.sourceSha256) || !intake.approver.trim() || !intake.revision.trim()) throw new Error('invalid_program_approval');
+  }
   await transaction(pool, async c => {
     await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`program:${program.id}`]);
-    await c.query(`INSERT INTO programs(id,name,platform,program_url,categories) VALUES($1,$2,$3,$4,$5)
-      ON CONFLICT(id) DO UPDATE SET name=excluded.name,platform=excluded.platform,program_url=excluded.program_url,categories=excluded.categories,updated_at=now()`,
-      [program.id,program.name,program.platform,program.programUrl,JSON.stringify(program.categories)]);
+    await c.query(`INSERT INTO programs(id,name,platform,program_url,categories,automation_policy,platform_handle) VALUES($1,$2,$3,$4,$5,$6,$7)
+      ON CONFLICT(id) DO UPDATE SET name=excluded.name,platform=excluded.platform,program_url=excluded.program_url,categories=excluded.categories,
+        automation_policy=COALESCE(excluded.automation_policy, programs.automation_policy),
+        platform_handle=COALESCE(excluded.platform_handle, programs.platform_handle), updated_at=now()`,
+      [program.id, program.name, program.platform, program.programUrl, JSON.stringify(program.categories), intake?.automationPolicy ?? null, intake?.platformHandle ?? null]);
+    if (intake) {
+      await c.query(`INSERT INTO program_approvals(program_id,approver,source_sha256,approved_at,revision) VALUES($1,$2,$3,$4,$5)
+        ON CONFLICT(program_id, revision) DO UPDATE SET approver=excluded.approver, source_sha256=excluded.source_sha256, approved_at=excluded.approved_at`,
+        [program.id, intake.approver, intake.sourceSha256, intake.approvedAt, intake.revision]);
+    }
     await c.query(`INSERT INTO scope_rules(program_id,policy) VALUES($1,$2) ON CONFLICT(program_id) DO UPDATE SET policy=excluded.policy`, [program.id,JSON.stringify(policy)]);
     const ids = program.assets.map(asset => asset.id);
     await c.query(`UPDATE assets SET active=false WHERE program_id=$1 AND NOT (id = ANY($2::text[]))`, [program.id, ids]);

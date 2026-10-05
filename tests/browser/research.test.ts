@@ -10,6 +10,7 @@ import { launchResearchBrowser } from '../../packages/application-research/brows
 import { loadConfig } from '../../packages/shared/config.js';
 
 const app = ApplicationSchema.parse({ maxPages: 5, maxDepth: 1, maxRequests: 120, maxDurationSeconds: 60,
+  readPathPrefixes: ['/', '/login', '/register', '/dashboard', '/verify-email', '/api'],
   auth: { loginPath: '/login', sessionPath: '/api/me', accounts: [{ id: 'a', usernameEnv: 'LAB_USER_A', passwordEnv: 'LAB_PASS_A' }, { id: 'b', usernameEnv: 'LAB_USER_B', passwordEnv: 'LAB_PASS_B' }] },
   privateResources: [{ name: 'private-document', createPath: '/api/documents', readPath: '/api/documents/{id}', cleanupPath: '/api/documents/by-marker/{marker}', ownerOnly: true }] });
 const env = { LAB_USER_A: 'alice@example.test', LAB_PASS_A: 'alice-password', LAB_USER_B: 'bob@example.test', LAB_PASS_B: 'bob-password' };

@@ -28,7 +28,11 @@ export function guardModelContext(text: string): ContextGuard {
   let redacted = text;
   const hits: string[] = [];
   for (const [name, pattern] of SECRET_PATTERNS) {
-    if (pattern.test(redacted)) { hits.push(name); redacted = redacted.replace(pattern, `[REDACTED:${name}]`); }
+    pattern.lastIndex = 0;
+    if (!pattern.test(redacted)) { pattern.lastIndex = 0; continue; }
+    hits.push(name);
+    pattern.lastIndex = 0;
+    redacted = redacted.replace(pattern, `[REDACTED:${name}]`);
     pattern.lastIndex = 0;
   }
   return { safe: hits.length === 0, redacted, hits };

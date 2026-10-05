@@ -7,17 +7,17 @@ import { createHash } from 'node:crypto';
 const GENESIS = '0'.repeat(64);
 
 // Canonical JSON with sorted keys so the hash is stable regardless of property order.
-function canonical(value: unknown): string {
+export function canonicalJson(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
   const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
-  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(',')}}`;
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(',')}}`;
 }
 
 export interface AuditRecord { event: unknown; prevHash: string; hash: string }
 
 export function hashRecord(prevHash: string, event: unknown): string {
-  return createHash('sha256').update(prevHash).update('\n').update(canonical(event)).digest('hex');
+  return createHash('sha256').update(prevHash).update('\n').update(canonicalJson(event)).digest('hex');
 }
 
 export function appendEvent(chain: AuditRecord[], event: unknown): AuditRecord {

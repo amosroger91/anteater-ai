@@ -11,19 +11,37 @@ test('fixture analysis cannot claim a verified vulnerability',async()=>{
   assert.equal(result.model,'fixture'); assert.equal(result.analysis.label,'no_signal'); assert.equal(result.analysis.followUp,'human_review');
 });
 
+const digestA = 'sha256:' + 'a'.repeat(64);
+const digestB = 'sha256:' + 'b'.repeat(64);
+function fetchWithDigest(digest: string, chat: (input: unknown, init?: RequestInit) => Response | Promise<Response>) {
+  return async (input: unknown, init?: RequestInit) => {
+    if (String(input).endsWith('/api/show')) return new Response(JSON.stringify({ digest }), { status: 200 });
+    return chat(input, init);
+  };
+}
+
 test('Ollama requests are schema-constrained and deterministic', async()=>{
   const original=globalThis.fetch; let request: Record<string,unknown>|undefined;
-  globalThis.fetch=async(_input,init)=>{
+  globalThis.fetch=fetchWithDigest(digestA, (_input, init) => {
     request=JSON.parse(String(init?.body)) as Record<string,unknown>;
     return new Response(JSON.stringify({model:'qwen3:4b',message:{role:'assistant',content:'{"label":"no_signal","evidence":[],"followUp":"none"}'},done:true,done_reason:'stop',prompt_eval_count:100}),{status:200});
-  };
+  }) as typeof fetch;
   try {
-    const result=await new OllamaProvider('http://127.0.0.1:11434/','qwen3:4b','sha256:'+'a'.repeat(64)).generate({system:'system',input:'input'});
+    const result=await new OllamaProvider('http://127.0.0.1:11434/','qwen3:4b',digestA).generate({system:'system',input:'input'});
     assert.equal(result.doneReason,'stop');
+    assert.equal(result.modelDigest, digestA);
     assert.equal(request?.think,false); assert.equal(request?.stream,false);
     assert.deepEqual(request?.options,{temperature:0,seed:1,top_k:10,num_ctx:4096,num_predict:192});
     assert.ok(request?.format);
   } finally { globalThis.fetch=original; }
+});
+
+test('Ollama refuses a running model whose digest does not match', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = fetchWithDigest(digestB, () => new Response('{}', { status: 200 })) as typeof fetch;
+  try {
+    await assert.rejects(new OllamaProvider('http://127.0.0.1:11434/', 'qwen3:4b', digestA).generate({ system: 's', input: 'i' }), /model_digest_mismatch/);
+  } finally { globalThis.fetch = original; }
 });
 
 test('Ollama truncation and thinking fail closed', async()=>{
@@ -32,8 +50,8 @@ test('Ollama truncation and thinking fail closed', async()=>{
     {message:{content:'{}'},done:true,done_reason:'length'},
     {message:{content:'{}',thinking:'hidden trace'},done:true,done_reason:'stop'},
   ]) {
-    globalThis.fetch=async()=>new Response(JSON.stringify(body),{status:200});
-    await assert.rejects(new OllamaProvider('http://127.0.0.1:11434/','qwen3:4b','sha256:'+'b'.repeat(64)).generate({system:'s',input:'i'}));
+    globalThis.fetch=fetchWithDigest(digestB, () => new Response(JSON.stringify(body),{status:200})) as typeof fetch;
+    await assert.rejects(new OllamaProvider('http://127.0.0.1:11434/','qwen3:4b',digestB).generate({system:'s',input:'i'}));
   }
   globalThis.fetch=original;
 });
@@ -53,6 +71,14 @@ test('model input preserves valid bounded feature JSON and excludes arbitrary fi
   assert.ok(input.length <= 3500);
   assert.equal(JSON.parse(input).status, 200);
   assert.ok(!input.includes('prior model'));
+});
+
+test('analysis redacts secrets before the model sees the observation', async () => {
+  let input = '';
+  const provider = { generate: async (request: { input: string }) => { input = request.input; return { model: 'fixture', doneReason: 'stop', text: JSON.stringify({ label: 'unknown', evidence: ['[REDACTED:aws_access_key]'], followUp: 'human_review' }) }; } };
+  const result = await analyzeObservation(provider, { bodySnippet: 'key AKIAIOSFODNN7EXAMPLE leaked' });
+  assert.equal(result.analysis.evidence[0], '[REDACTED:aws_access_key]');
+  assert.ok(!input.includes('AKIAIOSFODNN7EXAMPLE'));
 });
 
 test('repair metadata cannot be accepted as observation evidence', async () => {

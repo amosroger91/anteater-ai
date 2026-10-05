@@ -45,6 +45,23 @@ export function retentionPlan(records: RetainedRecord[], retentionDays: Record<s
 // requests against a target. These go straight to the dead-letter queue.
 export const NON_RETRYABLE = new Set(['policy_denied', 'out_of_scope', 'excluded', 'expired_policy', 'kill_switch', 'invalid_or_missing_policy', 'prohibited_action']);
 
+const RETENTION_TABLES = new Set(['observations', 'dead_letter']);
+
+/** Drop observation rows that findings still cite. Unknown table names are never deleted. */
+export function deletableRetentionIds(ids: string[], referencedObservationIds: ReadonlySet<string>): string[] {
+  const removable: string[] = [];
+  for (const id of ids) {
+    const splitAt = id.indexOf(':');
+    if (splitAt <= 0) continue;
+    const table = id.slice(0, splitAt);
+    const rowId = id.slice(splitAt + 1);
+    if (!RETENTION_TABLES.has(table) || !rowId) continue;
+    if (table === 'observations' && referencedObservationIds.has(rowId)) continue;
+    removable.push(id);
+  }
+  return removable;
+}
+
 export type FailureDisposition = 'retry' | 'dead_letter';
 export function classifyFailure(attempts: number, maxAttempts: number, errorCode: string): { disposition: FailureDisposition; reason: string } {
   if (NON_RETRYABLE.has(errorCode)) return { disposition: 'dead_letter', reason: `non_retryable:${errorCode}` };

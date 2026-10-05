@@ -1,9 +1,16 @@
 import type pg from 'pg';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { AnalysisFailure, AnalysisRun } from '../agent-runtime/index.js';
+import { ContractSchema, transition, verifyCandidate, type Responder, type State } from '../findings/index.js';
+import { retest, type RetestResult } from '../findings/retest.js';
+import { encrypt } from '../evidence/index.js';
 import { transaction } from './db.js';
 import { authorize, PolicySchema, targetForAction, type Action } from '../scope-engine/index.js';
 import { followUpActions, jobKey } from '../web-executor/planning.js';
+import { hashRecord } from '../audit/index.js';
+import { NON_RETRYABLE } from '../operations/index.js';
+
+const GENESIS = '0'.repeat(64);
 
 export interface Job {
   id: string; program_id: string; asset_id: string; action: Action; policy_revision: string;
@@ -11,13 +18,20 @@ export interface Job {
 }
 
 export class Jobs {
-  constructor(private pool: pg.Pool, private concurrency = 1, private leaseSeconds = 30) {}
+  constructor(private pool: pg.Pool, private concurrency = 1, private leaseSeconds = 30, private killed: () => boolean = () => false) {}
 
   async enqueue(program: string, asset: string, action: Action, key?: string) {
+    if (this.killed() || await this.databaseKilled()) return;
     return transaction(this.pool, c => this.enqueueOn(c, program, asset, action, key));
   }
 
+  private async databaseKilled(c: pg.Pool | pg.PoolClient = this.pool): Promise<boolean> {
+    const control = await c.query('SELECT global_kill FROM runtime_control WHERE id=1');
+    return control.rows[0]?.global_kill === true;
+  }
+
   private async enqueueOn(c: pg.PoolClient, program: string, asset: string, action: Action, key?: string, expectedRevision?: string) {
+    if (this.killed() || await this.databaseKilled(c)) return;
     await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`program:${program}`]);
     const source = await c.query(`SELECT a.url,s.policy FROM assets a JOIN scope_rules s ON s.program_id=a.program_id
       WHERE a.id=$1 AND a.program_id=$2 AND a.active=true FOR SHARE OF a,s`, [asset, program]);
@@ -26,7 +40,7 @@ export class Jobs {
     const parsed = PolicySchema.safeParse(row.policy);
     if (!parsed.success || parsed.data.programId !== program || (expectedRevision && parsed.data.revision !== expectedRevision)) return;
     const target = targetForAction(row.url, action);
-    if (!authorize(parsed.data, target, action, { GLOBAL_KILL_SWITCH: false }).allowed) return;
+    if (this.killed() || !authorize(parsed.data, target, action, { GLOBAL_KILL_SWITCH: false }).allowed) return;
     const dedupeKey = key ?? jobKey(program, asset, parsed.data.revision, target, action);
     const id = randomUUID();
     const inserted = await c.query(`
@@ -36,11 +50,13 @@ export class Jobs {
       WHERE a.id=$3 AND a.program_id=$2 AND a.active=true
         AND s.policy->'allowedActions' ? $4
       ON CONFLICT(dedupe_key) DO NOTHING`, [id, program, asset, action, dedupeKey]);
-    if (inserted.rowCount) await c.query(`INSERT INTO audit_events(id,event,program_id,job_id,asset_id,metadata) VALUES($1,'JOB_QUEUED',$2,$3,$4,$5)`, [randomUUID(), program, id, asset, JSON.stringify({ action, dedupeKey })]);
+    if (inserted.rowCount) await writeAudit(c, program, 'JOB_QUEUED', { jobId: id, assetId: asset, metadata: { action, dedupeKey } });
   }
 
   async claim(): Promise<Job | undefined> {
+    if (this.killed() || await this.databaseKilled()) return undefined;
     return transaction(this.pool, async c => {
+      if (this.killed() || await this.databaseKilled(c)) return undefined;
       await c.query('SELECT pg_advisory_xact_lock(784291)');
       await c.query(`UPDATE research_jobs SET status='failed',lease_token=NULL,lease_until=NULL,lease_heartbeat_at=NULL
         WHERE status='running' AND lease_until <= now() AND attempts >= max_attempts`);
@@ -53,6 +69,7 @@ export class Jobs {
           JOIN scope_rules s ON s.program_id=candidate.program_id
           WHERE candidate.attempts<candidate.max_attempts
             AND candidate.policy_revision=s.policy->>'revision'
+            AND NOT EXISTS (SELECT 1 FROM revoked_programs revoked WHERE revoked.program_id=candidate.program_id)
             AND ((candidate.status='queued' AND candidate.available_at<=now()) OR (candidate.status='running' AND candidate.lease_until<=now()))
           ORDER BY candidate.created_at FOR UPDATE OF candidate SKIP LOCKED LIMIT 1)
         RETURNING j.*`, [randomUUID(), this.leaseSeconds]);
@@ -97,7 +114,7 @@ export class Jobs {
           if (typeof evidence.sha256 === 'string' && /^[a-f0-9]{64}$/.test(evidence.sha256)) await c.query('INSERT INTO evidence(id,finding_id,sha256,body) VALUES($1,$2,$3,$4)', [randomUUID(), findingId, evidence.sha256, JSON.stringify(rawEvidence)]);
         }
       }
-      await c.query(`INSERT INTO audit_events(id,event,program_id,job_id,asset_id,metadata) VALUES($1,'OBSERVATION_RECORDED',$2,$3,$4,$5)`, [randomUUID(), job.program_id, job.id, job.asset_id, JSON.stringify({ action: job.action, observationId })]);
+      await writeAudit(c, job.program_id, 'OBSERVATION_RECORDED', { jobId: job.id, assetId: job.asset_id, metadata: { action: job.action, observationId } });
       for (const action of followUpActions(job.action, observation)) await this.enqueueOn(c, job.program_id, job.asset_id, action, undefined, job.policy_revision);
       await c.query(`INSERT INTO workspace_outbox(program_id) VALUES($1) ON CONFLICT(program_id) DO UPDATE SET revision=workspace_outbox.revision+1`, [job.program_id]);
     });
@@ -116,7 +133,7 @@ export class Jobs {
         randomUUID(), job.program_id, JSON.stringify(run.analysis), runId, observationId, `${job.id}:analysis:${run.schemaVersion}`,
       ]);
       await c.query(`INSERT INTO workspace_outbox(program_id) VALUES($1) ON CONFLICT(program_id) DO UPDATE SET revision=workspace_outbox.revision+1`, [job.program_id]);
-      await c.query(`INSERT INTO audit_events(id,event,program_id,job_id,metadata) VALUES($1,'ANALYSIS_ACCEPTED',$2,$3,$4)`, [randomUUID(), job.program_id, job.id, JSON.stringify({ observationId, label: run.analysis.label })]);
+      await writeAudit(c, job.program_id, 'ANALYSIS_ACCEPTED', { jobId: job.id, metadata: { observationId, label: run.analysis.label } });
     });
   }
 
@@ -133,11 +150,91 @@ export class Jobs {
       WHERE id=$1 AND lease_token=$2 AND status='running'`, [job.id, job.lease_token, seconds]);
   }
 
-  async fail(job: Job) {
+  async fail(job: Job, code?: string) {
+    if (code && NON_RETRYABLE.has(code)) {
+      await transaction(this.pool, async c => {
+        await c.query(`UPDATE research_jobs SET status='failed',lease_token=NULL,lease_until=NULL,lease_heartbeat_at=NULL
+          WHERE id=$1 AND lease_token=$2 AND status='running'`, [job.id, job.lease_token]);
+        await c.query('INSERT INTO dead_letter(id,job_id,reason,error_code) VALUES($1,$2,$3,$4)', [randomUUID(), job.id, `non_retryable:${code}`, code]);
+      });
+      return;
+    }
     await this.pool.query(`UPDATE research_jobs SET status=CASE WHEN attempts>=max_attempts THEN 'failed' ELSE 'queued' END,
       available_at=now()+attempts*interval '5 seconds',lease_token=NULL,lease_until=NULL,lease_heartbeat_at=NULL
       WHERE id=$1 AND lease_token=$2 AND status='running' AND lease_until>now()`, [job.id, job.lease_token]);
   }
+}
+
+async function writeAudit(c: pg.PoolClient, programId: string, event: string, fields: { jobId?: string; assetId?: string; metadata: Record<string, unknown> }) {
+  await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`audit:${programId}`]);
+  const previous = await c.query('SELECT hash FROM audit_events WHERE program_id=$1 AND hash IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT 1', [programId]);
+  const prevHash = typeof previous.rows[0]?.hash === 'string' ? previous.rows[0].hash : GENESIS;
+  const body = { event, ...fields.metadata };
+  const hash = hashRecord(prevHash, body);
+  await c.query(`INSERT INTO audit_events(id,event,program_id,job_id,asset_id,metadata,prev_hash,hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, [
+    randomUUID(), event, programId, fields.jobId ?? null, fields.assetId ?? null, JSON.stringify(fields.metadata), prevHash, hash,
+  ]);
+}
+
+// VERIFIED is written only after deterministic replay, and only with the verifier actor.
+// The caller supplies a responder; it does not supply the next state.
+export async function recordReplay(pool: pg.Pool, programId: string, from: State, rawContract: unknown, responder: Responder, body: Record<string, unknown>, options?: { evidenceKey?: string }) {
+  const contract = ContractSchema.parse(rawContract);
+  const result = await verifyCandidate(from, contract, responder);
+  if (!result.transition.ok) throw new Error(result.transition.reason);
+  const id = randomUUID();
+  const replay = { reproduced: result.outcome.reproduced, reason: result.outcome.reason, evidence: result.outcome.evidence };
+  const evidenceBody = { findingId: id, replay };
+  const sha = createHash('sha256').update(JSON.stringify(evidenceBody)).digest('hex');
+  const sealed = options?.evidenceKey ? encrypt(JSON.stringify(evidenceBody), options.evidenceKey) : undefined;
+  const stored = { ...body, contract, replay };
+  await transaction(pool, async c => {
+    if (result.next === 'VERIFIED') {
+      if (!result.outcome.reproduced) throw new Error('verifier_invariant');
+      await c.query(`SELECT set_config('anteater.actor', 'verifier', true)`);
+      await c.query(`INSERT INTO findings(id,program_id,status,body,verified_by) VALUES($1,$2,'VERIFIED',$3,'deterministic-replay')`, [id, programId, JSON.stringify(stored)]);
+      await writeAudit(c, programId, 'FINDING_VERIFIED', { metadata: { findingId: id, reason: result.outcome.reason } });
+    } else {
+      await c.query(`INSERT INTO findings(id,program_id,status,body) VALUES($1,$2,'HUMAN_REVIEW',$3)`, [id, programId, JSON.stringify(stored)]);
+      await writeAudit(c, programId, 'FINDING_HELD', { metadata: { findingId: id, next: result.next, reason: result.outcome.reason } });
+    }
+    await c.query(`INSERT INTO evidence(id,finding_id,sha256,body) VALUES($1,$2,$3,$4)`, [randomUUID(), id, sha, JSON.stringify(sealed ? { ...evidenceBody, sealed } : evidenceBody)]);
+  });
+  return { id, next: result.next, reproduced: result.outcome.reproduced };
+}
+
+export async function recordCampaignCoverage(pool: pg.Pool, programId: string, summary: Record<string, number>, markdown: string) {
+  await transaction(pool, async c => {
+    await writeAudit(c, programId, 'CAMPAIGN_COVERAGE', { metadata: { ...summary, markdown } });
+  });
+}
+
+export async function retestStored(pool: pg.Pool, findingId: string, responder: Responder): Promise<RetestResult> {
+  const row = await pool.query('SELECT body FROM findings WHERE id=$1', [findingId]);
+  const contract = row.rows[0]?.body?.contract;
+  if (!contract) return { fixed: false, inconclusive: true, reason: 'contract_missing' };
+  return retest(contract, responder);
+}
+
+// A scanner may raise HUMAN_REVIEW. It cannot write VERIFIED or SUBMITTED.
+export async function recordScannerFinding(pool: pg.Pool, programId: string, finding: { template: string; location: string; severity: string }) {
+  const review = ['medium', 'high', 'critical'].includes(finding.severity);
+  if (review && !transition('CANDIDATE', 'HUMAN_REVIEW', 'scanner').ok) throw new Error('scanner_cannot_review');
+  const id = randomUUID();
+  await pool.query(`INSERT INTO findings(id,program_id,status,body) VALUES($1,$2,$3,$4)`, [id, programId, review ? 'HUMAN_REVIEW' : 'OBSERVATION', JSON.stringify({
+    findingType: 'nuclei', location: finding.location, severity: finding.severity, template: finding.template, confidence: review ? 0.4 : 0.2,
+  })]);
+  return { id, status: review ? 'HUMAN_REVIEW' as const : 'OBSERVATION' as const };
+}
+
+export async function submitFinding(pool: pg.Pool, findingId: string, reviewer: string) {
+  const name = reviewer.trim();
+  if (name.length < 2 || name.length > 200) throw new Error('human_reviewer_required');
+  await transaction(pool, async c => {
+    await c.query(`SELECT set_config('anteater.actor', 'human', true)`);
+    const updated = await c.query(`UPDATE findings SET status='SUBMITTED', human_reviewer=$2 WHERE id=$1 AND status IN ('HUMAN_REVIEW','VERIFIED')`, [findingId, name]);
+    if (!updated.rowCount) throw new Error('finding_not_reviewable');
+  });
 }
 
 export async function acquireRate(pool: pg.Pool, program: string, programRps: number, globalRps: number): Promise<boolean> {

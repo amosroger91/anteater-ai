@@ -13,7 +13,7 @@ const SECURE_HEADERS = {
 };
 
 // §4 header / CORS / cache / redirect / cookie response fixtures.
-export function responseFixture(scenario: 'headers' | 'cors' | 'cache' | 'redirect' | 'cookie', variant: Variant): HttpResponseView {
+export function responseFixture(scenario: 'headers' | 'cors' | 'cache' | 'redirect' | 'cookie' | 'takeover' | 'vcs' | 'admin' | 'cors-credentialed' | 'auth-redirect' | 'js-secret', variant: Variant): HttpResponseView {
   const secure = variant === 'patched';
   switch (scenario) {
     case 'headers':
@@ -26,6 +26,18 @@ export function responseFixture(scenario: 'headers' | 'cors' | 'cache' | 'redire
       return { status: 302, body: '', requestHost: 'app.example.test', headers: { location: secure ? 'https://app.example.test/home' : 'https://evil.test/phish' } };
     case 'cookie':
       return { status: 200, body: 'ok', headers: { 'set-cookie': secure ? 'sid=1; Secure; HttpOnly; SameSite=Lax' : 'sid=1' } };
+    case 'takeover':
+      return { status: 404, body: secure ? 'not found' : 'NoSuchBucket: The specified bucket does not exist', requestHost: 'app.example.test', cname: 'unclaimed.example.test', headers: {} };
+    case 'vcs':
+      return { status: secure ? 404 : 200, body: secure ? 'not found' : '[core]\n\trepositoryformatversion = 0\n', path: '/.git/config', headers: {} };
+    case 'admin':
+      return { status: secure ? 404 : 200, body: secure ? 'not found' : '{"_links":{"self":{"href":"/actuator"},"health":{"href":"/actuator/health"}}}', path: '/actuator', headers: {} };
+    case 'cors-credentialed':
+      return { status: 200, body: 'ok', requestHost: 'app.example.test', requestOrigin: secure ? 'https://app.example.test' : 'https://evil.test', headers: { 'access-control-allow-origin': secure ? 'https://app.example.test' : 'https://evil.test', 'access-control-allow-credentials': 'true' } };
+    case 'auth-redirect':
+      return { status: 302, body: '', path: '/login', requestHost: 'app.example.test', headers: { location: secure ? 'https://app.example.test/home' : 'https://evil.test/phish' } };
+    case 'js-secret':
+      return { status: 200, body: secure ? 'const key = "not-a-key";' : 'const key = "AKIA1234567890ABCDEF";', path: '/app.js', headers: { 'content-type': 'application/javascript' } };
   }
 }
 

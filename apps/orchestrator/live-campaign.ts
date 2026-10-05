@@ -1,0 +1,161 @@
+import type pg from 'pg';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { discoverAndPartition, type DiscoveryAdapter } from '../../packages/discovery/index.js';
+import { candidateJobs, type JobSpec } from '../../packages/discovery/enqueue.js';
+import { coverageReport, type CoverageSummary, type ScanResult } from '../../packages/coverage/index.js';
+import type { Responder, State } from '../../packages/findings/index.js';
+import { remediationFor } from '../../packages/remediation/index.js';
+import type { Action } from '../../packages/scope-engine/index.js';
+import { ProgramSchema, type Program } from '../../packages/bounty-providers/index.js';
+import { saveProgram } from '../../packages/research-state/workspace.js';
+import { acquireRate, Jobs, recordCampaignCoverage, recordReplay } from '../../packages/research-state/jobs.js';
+import { ToolGateway, type GatewayExecutors } from '../../packages/mcp/index.js';
+import { probeAuthorizedGets, retryableTransportError } from '../../packages/web-executor/index.js';
+import { VCS_READ_PATHS } from '../../packages/web-checks/index.js';
+import type { Config } from '../../packages/shared/config.js';
+
+// Persistent campaign (BOUNTY_EARNINGS_PLAN.md Phase 0.2). Discovery, admission, job specs,
+// coverage, and remediation stay the pure composition in campaign.ts. This file adds the queue:
+// admitted hosts become assets, Jobs enqueues them, and ToolGateway runs the existing worker
+// tools. Held hosts are not saved and not enqueued. A model does not choose the target or action.
+
+export function assetIdForHost(host: string): string {
+  const id = host.toLowerCase().replaceAll('.', '-');
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) throw new Error('invalid_asset_id');
+  return id;
+}
+
+export interface LiveCampaignPlan {
+  admitted: string[];
+  held: string[];
+  jobs: JobSpec[];
+  assets: Array<{ id: string; url: string; host: string }>;
+}
+
+export async function planLiveCampaign(input: {
+  roots: string[];
+  policy: unknown;
+  action: Action;
+  revision: string;
+  discovery: DiscoveryAdapter;
+}): Promise<LiveCampaignPlan> {
+  const { admitted, held } = await discoverAndPartition(input.discovery, input.roots, input.policy, input.action);
+  const jobs = candidateJobs(admitted.map(row => row.candidate), input.policy, input.action, input.revision);
+  const assets = jobs.map(job => ({ id: assetIdForHost(job.host), url: `https://${job.host}`, host: job.host }));
+  return {
+    admitted: admitted.map(row => row.candidate.host),
+    held: held.map(row => row.candidate.host),
+    jobs,
+    assets,
+  };
+}
+
+export interface LiveCampaignInput {
+  roots: string[];
+  program: Omit<Program, 'assets'>;
+  action: Action;
+  discovery: DiscoveryAdapter;
+  verify?: { from: State; contract: unknown; responder: Responder; body: Record<string, unknown> };
+}
+
+export interface LiveCampaignResult {
+  admitted: string[];
+  held: string[];
+  jobs: JobSpec[];
+  observations: Array<{ host: string; observationId: string; observation: Record<string, unknown> }>;
+  coverage: CoverageSummary;
+  remediations: Array<{ code: string; fix: string }>;
+  verification?: { id: string; next: State; reproduced: boolean };
+}
+
+function signalsOf(observation: Record<string, unknown>): ScanResult['findings'] {
+  if (!Array.isArray(observation.signals)) return [];
+  const findings: ScanResult['findings'] = [];
+  for (const signal of observation.signals) {
+    if (!signal || typeof signal !== 'object') continue;
+    const row = signal as Record<string, unknown>;
+    if (typeof row.code !== 'string' || typeof row.severity !== 'string') continue;
+    findings.push({ code: row.code, severity: row.severity, detail: typeof row.detail === 'string' ? row.detail : '' });
+  }
+  return findings;
+}
+
+export async function runLiveCampaign(
+  deps: { pool: pg.Pool; config: () => Config; executors?: GatewayExecutors },
+  input: LiveCampaignInput,
+): Promise<LiveCampaignResult> {
+  const plan = await planLiveCampaign({
+    roots: input.roots, policy: input.program.policy, action: input.action,
+    revision: input.program.policy.revision, discovery: input.discovery,
+  });
+  if (!plan.assets.length) {
+    return { admitted: plan.admitted, held: plan.held, jobs: plan.jobs, observations: [], coverage: coverageReport([]).summary, remediations: [] };
+  }
+  const program = ProgramSchema.parse({ ...input.program, assets: plan.assets.map(({ id, url }) => ({ id, url })) });
+  await saveProgram(deps.pool, program);
+  const config = deps.config;
+  const jobs = new Jobs(deps.pool, config().MAX_CONCURRENT_JOBS, config().JOB_LEASE_SECONDS, () => config().GLOBAL_KILL_SWITCH);
+  const gateway = new ToolGateway(deps.pool, config, deps.executors);
+  const byAsset = new Map(plan.assets.map(asset => [asset.id, asset.host]));
+  for (const spec of plan.jobs) {
+    const asset = plan.assets.find(item => item.host === spec.host);
+    if (!asset) continue;
+    await jobs.enqueue(program.id, asset.id, spec.action, spec.dedupeKey);
+  }
+  const observations: LiveCampaignResult['observations'] = [];
+  for (let n = 0; n < 32; n++) {
+    const job = await jobs.claim();
+    if (!job) break;
+    try {
+      const observation = await gateway.invoke(job, job.action, job.asset_id);
+      if (job.action === 'inspect_http_target' && observation.error === undefined) {
+        const host = byAsset.get(job.asset_id);
+        if (host) {
+          const paid = await probeAuthorizedGets({
+            host, policy: program.policy, killSwitch: config().GLOBAL_KILL_SWITCH, enabled: config().ENABLE_PASSIVE_HTTP,
+            paths: VCS_READ_PATHS, maxBytes: config().MAX_RESPONSE_BYTES, deps: deps.executors?.passive,
+            reserve: async () => {
+              for (let attempt = 0; attempt < 8; attempt++) {
+                if (config().GLOBAL_KILL_SWITCH) return false;
+                if (await acquireRate(deps.pool, program.id, program.policy.requestsPerSecond, config().MAX_REQUEST_RATE)) return true;
+                await sleep(250);
+              }
+              return false;
+            },
+          });
+          const existing = Array.isArray(observation.signals) ? observation.signals : [];
+          observation.signals = [...existing, ...paid.signals];
+          observation.probedPaths = paid.probed;
+        }
+      }
+      const transport = retryableTransportError(observation);
+      if (transport) { await jobs.fail(job); continue; }
+      const observationId = await jobs.complete(job, observation);
+      observations.push({ host: byAsset.get(job.asset_id) ?? job.asset_id, observationId, observation });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      if (message === 'rate_limited' || message === 'kill_switch') await jobs.defer(job);
+      else await jobs.fail(job, /^[a-z0-9_]+$/.test(message) ? message : undefined);
+      throw error;
+    }
+  }
+  const results: ScanResult[] = observations.map(row => ({
+    origin: `https://${row.host}`,
+    reachable: typeof row.observation.status === 'number' && row.observation.error === undefined,
+    findings: signalsOf(row.observation),
+    probedPaths: Array.isArray(row.observation.probedPaths) ? row.observation.probedPaths.filter((path): path is string => typeof path === 'string') : [],
+  }));
+  const report = coverageReport(results);
+  await recordCampaignCoverage(deps.pool, program.id, { ...report.summary }, report.markdown);
+  const codes = [...new Set(results.flatMap(result => result.findings.map(finding => finding.code)))];
+  const remediations = codes.map(code => ({ code, fix: remediationFor(code).fix }));
+  let verification: LiveCampaignResult['verification'];
+  if (input.verify) {
+    verification = await recordReplay(deps.pool, program.id, input.verify.from, input.verify.contract, input.verify.responder, input.verify.body, { evidenceKey: config().EVIDENCE_KEY });
+    const code = typeof input.verify.body.findingType === 'string' ? input.verify.body.findingType : '';
+    if (verification.reproduced && code && !remediations.some(item => item.code === code)) {
+      remediations.push({ code, fix: remediationFor(code).fix });
+    }
+  }
+  return { admitted: plan.admitted, held: plan.held, jobs: plan.jobs, observations, coverage: report.summary, remediations, verification };
+}

@@ -4,17 +4,25 @@ export const safePath = z.string().max(512).regex(/^\/[A-Za-z0-9._~/{}/-]*$/)
   .refine(value => !value.includes('//') && !value.split('/').some(part => part === '.' || part === '..'));
 const envName = z.string().regex(/^[A-Z][A-Z0-9_]{0,100}$/);
 export const MailboxSchema = z.object({
-  host: z.string().min(1), port: z.number().int().min(1).max(65535).default(993),
+  host: z.string().regex(/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i), port: z.number().int().min(1).max(65535).default(993),
   usernameEnv: envName, passwordEnv: envName, folder: z.string().default('INBOX'),
   emailDomain: z.string().regex(/^[a-z0-9.-]+\.[a-z]{2,}$/),
   timeoutSeconds: z.number().int().min(1).max(120).default(45),
 }).strict();
+export const AccountRoleSchema = z.enum(['user', 'admin']);
 export const AuthSchema = z.object({
   loginPath: safePath.optional(), signupPath: safePath.optional(),
   loginWritePaths: z.array(safePath).max(30).default(['/login', '/signin', '/api/login']),
   signupWritePaths: z.array(safePath).max(30).default(['/register', '/signup', '/api/register']),
   verificationPaths: z.array(safePath).max(20).default(['/verify', '/verify-email']),
-  accounts: z.array(z.object({ id: z.string().regex(/^[a-z0-9-]+$/), usernameEnv: envName, passwordEnv: envName }).strict()).max(2).default([]),
+  // Two ordinary users and one least-privileged admin. Fewer accounts still parse so older profiles keep working.
+  accounts: z.array(z.object({
+    id: z.string().regex(/^[a-z0-9-]+$/),
+    usernameEnv: envName,
+    passwordEnv: envName,
+    role: AccountRoleSchema.default('user'),
+    tenant: z.string().regex(/^[a-z0-9-]+$/).default('default'),
+  }).strict()).max(3).default([]),
   signupEnabled: z.boolean().default(false), mailbox: MailboxSchema.optional(),
   sessionPath: safePath.optional(), identityPointer: z.string().startsWith('/').default('/email'),
 }).strict();
@@ -41,7 +49,10 @@ export const ApplicationSchema = z.object({
 export type Application = z.infer<typeof ApplicationSchema>;
 export type Auth = z.infer<typeof AuthSchema>;
 export type Mailbox = z.infer<typeof MailboxSchema>;
-export const underPath = (path: string, prefix: string) => prefix === '/' || path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : prefix + '/');
+// "/" is only the root document. Any other prefix also covers its children.
+export const underPath = (path: string, prefix: string) => path === prefix || (prefix !== '/' && path.startsWith(prefix.endsWith('/') ? prefix : prefix + '/'));
+const MUTATING_GET = /^(?:logout|signout|log-out|sign-out|delete|remove|unsubscribe|purchase|checkout|reset|deauth)/i;
+export const mutatingGet = (path: string) => path.split('/').some(part => part.length > 0 && MUTATING_GET.test(part));
 export function jsonPointer(value: unknown, pointer: string): unknown {
   return pointer.split('/').slice(1).reduce<unknown>((current, part) => {
     const key = part.replaceAll('~1', '/').replaceAll('~0', '~');
