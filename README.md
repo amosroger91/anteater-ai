@@ -89,7 +89,7 @@ Use a normal clone followed by `deps:sync`; recursive submodule cloning can down
 
 ## Current implementation and next steps
 
-Phases 0 through 2 of the [bounty earnings plan](docs/BOUNTY_EARNINGS_PLAN.md) are in this checkout. They are local code with fixture proof. They are not production operation. The Phase 1 exit — three real programs compiled and approved by a named human — is not met. No live platform call was made.
+Phases 0 through 3 of the [bounty earnings plan](docs/BOUNTY_EARNINGS_PLAN.md) are in this checkout. They are local code with fixture proof. They are not production operation. The Phase 1 exit — three real programs compiled and approved by a named human — is not met. No live platform call was made.
 
 | In the current checkout | Still needed for production |
 | --- | --- |
@@ -97,16 +97,16 @@ Phases 0 through 2 of the [bounty earnings plan](docs/BOUNTY_EARNINGS_PLAN.md) a
 | HackerOne intake limited to `https://api.hackerone.com`: injectable fetch, automation class, hash-checked approval, and `program_approvals` | A named human approving three real handles. The library does not call the live API and does not read credentials from the environment |
 | Lab staging loop: a seeded IDOR is reproduced, the patched variant is rejected, and `SUBMITTED` requires a human reviewer | Broader route and role coverage, live cleanup proof, and impact-ranked reports |
 | Opt-in Playwright research with two isolated accounts, identity checks, optional encrypted generated accounts and IMAP verification | Real owned-staging validation beyond the lab fixture, role-aware credential service, account lifecycle, and verified browser/network isolation |
-| Eight passive posture coverage checks, a 13-reference WSTG/ASVS registry, fixture gates, API inventory and offline analyzers | Broader methodology coverage and integration of checks into the live campaign |
+| Fourteen coverage checks and a 20-reference WSTG/ASVS registry. Paid detectors for takeover, exposed source and environment files, public admin content, credentialed CORS, auth redirects, and keys in JavaScript are fixture-gated. Missing security headers are `info` | Those detectors are not yet called by the live worker. A header nit is not a submission |
 | Deterministic replay for `VERIFIED`, and a human actor plus reviewer name for `SUBMITTED` | Evidence key management |
-| Budgeted discovery monitor for automation-permitted programs: certificate transparency, passive DNS, and Subfinder stay injectable; only a newly exposed in-scope host is queued | Paid-severity detectors (Phase 3). The monitor does not fetch a discovered host; a later worker does, and only for a queued in-scope asset |
+| Budgeted discovery monitor for automation-permitted programs: certificate transparency, passive DNS, and Subfinder stay injectable; only a newly exposed in-scope host is queued | The monitor does not fetch a discovered host. A later worker does, and only for a queued in-scope asset |
 | 29 pinned source/data dependencies and update checks | Reviewed runtime tool adapters, authenticated MCP, operational monitoring and recovery drills |
 
 `GLOBAL_KILL_SWITCH` stays default-on. `ENABLE_PASSIVE_HTTP` and `ENABLE_APPLICATION_RESEARCH` stay default-off. `ALLOW_PRIVATE_LAB_TARGETS` admits a private address only for a hostname listed in `LAB_TARGET_HOSTS` while that flag is on. Loopback and link-local addresses stay blocked. These phases do not contact a real bug-bounty program.
 
 The checked-in Kali container is an inert, network-disabled boundary demonstration. `ENABLE_PASSIVE_HTTP=true` enables only the reviewed read-only worker adapter. Application research additionally requires `ENABLE_APPLICATION_RESEARCH=true`; login, signup, resource creation and replay require `ALLOW_ACTIVE_TESTING=true` plus explicit profile paths. These switches do not replace host/container egress isolation.
 
-The latest post-change check on this branch passed `npm run build`, **156 unit tests**, `npm run gate` (5 cases, 0 false positives), and `npm run verify:local` (state, program intake, staging loop, discovery history, discovery monitor, and one fixture replay). The browser suite was not rerun; these phases did not change browser tests. Browser tests use real Chromium with an injected synthetic application transport and mailbox. No research target, real login, or real mailbox was tested. See [validation details](docs/VALIDATION.md), the [production roadmap](docs/PRODUCTION_ROADMAP.md), and [readiness gates](docs/READINESS.md). Native PostgreSQL provided the local integration-test path; local Docker runtime and real model inference remain unverified.
+The latest post-change check on this branch passed `npm run build`, **158 unit tests**, `npm run gate` (11 cases, 0 false positives), and `npm run verify:local` (state, program intake, staging loop, discovery history, discovery monitor, and one fixture replay). The detector change did not alter that database path, so `verify:local` was not re-run after the detectors landed. The browser suite was not rerun; these phases did not change browser tests. Browser tests use real Chromium with an injected synthetic application transport and mailbox. No research target, real login, or real mailbox was tested. See [validation details](docs/VALIDATION.md), the [production roadmap](docs/PRODUCTION_ROADMAP.md), and [readiness gates](docs/READINESS.md). Native PostgreSQL provided the local integration-test path; local Docker runtime and real model inference remain unverified.
 
 ## Quick start
 
