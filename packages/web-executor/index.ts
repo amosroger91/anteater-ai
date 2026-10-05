@@ -15,6 +15,22 @@ export interface PassiveOptions {
   beforeRequest?: () => Promise<void>;
   timeoutMs?: number;
   deps?: PassiveDeps;
+  labTargets?: LabTargetAllow;
+}
+// Private-address relaxation for an explicit owned-lab hostname list. Loopback and link-local
+// stay blocked inside addressBlockReason. A host that is not in the set never receives allowPrivate.
+export interface LabTargetAllow { enabled: boolean; hosts: ReadonlySet<string> }
+export function parseLabTargetAllow(enabled: boolean, hostList: string): LabTargetAllow {
+  const hosts = new Set<string>();
+  for (const part of hostList.split(',')) {
+    const host = part.trim().toLowerCase().replace(/\.$/, '');
+    if (host) hosts.add(host);
+  }
+  return { enabled, hosts };
+}
+export function labPrivateAllowed(hostname: string, allow: LabTargetAllow | undefined): boolean {
+  if (!allow?.enabled) return false;
+  return allow.hosts.has(hostname.toLowerCase().replace(/\.$/, ''));
 }
 const realDeps: PassiveDeps = {
   lookup: hostname => lookup(hostname, { all: true, verbatim: true }),
@@ -70,8 +86,10 @@ export async function executePassiveHttp(target: string, options: PassiveOptions
   };
   try {
     controller.signal.throwIfAborted();
+    // One lookup, then connect to that address. A later resolution cannot move the socket.
     const answers = await abortable(deps.lookup(url.hostname));
-    const selected = answers.find(answer => (answer.family === 4 || answer.family === 6) && !addressBlockReason(answer.address));
+    const allowPrivate = labPrivateAllowed(url.hostname, options.labTargets);
+    const selected = answers.find(answer => (answer.family === 4 || answer.family === 6) && !addressBlockReason(answer.address, allowPrivate));
     if (!selected) return { ...base, error: 'blocked_address' };
     // Resolve first, then revalidate the current lease/policy and reserve a request slot.
     if (options.beforeRequest) {
