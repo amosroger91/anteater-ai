@@ -15,6 +15,7 @@ const schema = z.object({
   LAB_TARGET_HOSTS: z.string().default(''),
   CREDENTIAL_STORE: z.string().default('secrets/accounts'),
   ACCOUNT_KEY: z.string().regex(/^[a-fA-F0-9]{64}$/).optional(),
+  EVIDENCE_KEY: z.string().regex(/^[a-fA-F0-9]{64}$/).optional(),
   PROGRAM_SOURCE: z.enum(['fixture', 'file']).default('fixture'),
   PROGRAMS_FILE: z.string().min(1).optional(),
   MAX_CONCURRENT_JOBS: z.coerce.number().int().min(1).max(16).default(1),

@@ -29,6 +29,7 @@
     "aggressive": "tsx scripts/aggressive.ts",
     "retention:sweep": "tsx scripts/retention-sweep.ts",
     "finding:submit": "tsx scripts/submit-finding.ts",
+    "triage": "tsx scripts/triage.ts",
     "bounty:fetch": "tsx scripts/bounty-inbox.ts fetch",
     "bounty:refresh": "tsx scripts/bounty-inbox.ts refresh",
     "bounty:review": "tsx scripts/bounty-inbox.ts review",

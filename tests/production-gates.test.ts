@@ -61,9 +61,14 @@ test('transport failures retry and an outage is not a fix', async () => {
   const contract = { findingType: 'demo', steps: [{ id: 'read', expectStatus: 200, expectBodyIncludes: ['secret'] }], counterTest: { id: 'control', expectStatus: 403 }, repeatCount: 1 };
   const outage = await retest(contract, async () => { throw new Error('offline'); });
   assert.equal(outage.fixed, false);
+  assert.equal(outage.inconclusive, true);
   assert.equal(outage.reason, 'step_unavailable');
+  const dead = await retest(contract, async () => ({ status: 0, body: '' }));
+  assert.equal(dead.fixed, false);
+  assert.equal(dead.inconclusive, true);
   const controlFailed = await retest(contract, async step => step === 'read' ? { status: 200, body: 'secret-data' } : { status: 200, body: 'open' });
   assert.equal(controlFailed.fixed, false);
+  assert.equal(controlFailed.inconclusive, true);
   assert.equal(controlFailed.reason, 'counter_test_failed');
   assert.equal((await retest(contract, async step => step === 'read' ? { status: 404, body: 'gone' } : { status: 403, body: 'denied' })).fixed, true);
 });

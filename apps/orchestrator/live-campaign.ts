@@ -7,7 +7,7 @@ import { remediationFor } from '../../packages/remediation/index.js';
 import type { Action } from '../../packages/scope-engine/index.js';
 import { ProgramSchema, type Program } from '../../packages/bounty-providers/index.js';
 import { saveProgram } from '../../packages/research-state/workspace.js';
-import { Jobs, recordReplay } from '../../packages/research-state/jobs.js';
+import { Jobs, recordCampaignCoverage, recordReplay } from '../../packages/research-state/jobs.js';
 import { ToolGateway, type GatewayExecutors } from '../../packages/mcp/index.js';
 import { retryableTransportError } from '../../packages/web-executor/index.js';
 import type { Config } from '../../packages/shared/config.js';
@@ -123,11 +123,12 @@ export async function runLiveCampaign(
     findings: signalsOf(row.observation),
   }));
   const report = coverageReport(results);
+  await recordCampaignCoverage(deps.pool, program.id, { ...report.summary }, report.markdown);
   const codes = [...new Set(results.flatMap(result => result.findings.map(finding => finding.code)))];
   const remediations = codes.map(code => ({ code, fix: remediationFor(code).fix }));
   let verification: LiveCampaignResult['verification'];
   if (input.verify) {
-    verification = await recordReplay(deps.pool, program.id, input.verify.from, input.verify.contract, input.verify.responder, input.verify.body);
+    verification = await recordReplay(deps.pool, program.id, input.verify.from, input.verify.contract, input.verify.responder, input.verify.body, { evidenceKey: config().EVIDENCE_KEY });
     const code = typeof input.verify.body.findingType === 'string' ? input.verify.body.findingType : '';
     if (verification.reproduced && code && !remediations.some(item => item.code === code)) {
       remediations.push({ code, fix: remediationFor(code).fix });

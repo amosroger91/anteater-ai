@@ -1,7 +1,9 @@
 import type pg from 'pg';
 import { createHash, randomUUID } from 'node:crypto';
 import type { AnalysisFailure, AnalysisRun } from '../agent-runtime/index.js';
-import { transition, verifyCandidate, type Responder, type State } from '../findings/index.js';
+import { ContractSchema, transition, verifyCandidate, type Responder, type State } from '../findings/index.js';
+import { retest, type RetestResult } from '../findings/retest.js';
+import { encrypt } from '../evidence/index.js';
 import { transaction } from './db.js';
 import { authorize, PolicySchema, targetForAction, type Action } from '../scope-engine/index.js';
 import { followUpActions, jobKey } from '../web-executor/planning.js';
@@ -176,14 +178,16 @@ async function writeAudit(c: pg.PoolClient, programId: string, event: string, fi
 
 // VERIFIED is written only after deterministic replay, and only with the verifier actor.
 // The caller supplies a responder; it does not supply the next state.
-export async function recordReplay(pool: pg.Pool, programId: string, from: State, contract: unknown, responder: Responder, body: Record<string, unknown>) {
+export async function recordReplay(pool: pg.Pool, programId: string, from: State, rawContract: unknown, responder: Responder, body: Record<string, unknown>, options?: { evidenceKey?: string }) {
+  const contract = ContractSchema.parse(rawContract);
   const result = await verifyCandidate(from, contract, responder);
   if (!result.transition.ok) throw new Error(result.transition.reason);
   const id = randomUUID();
   const replay = { reproduced: result.outcome.reproduced, reason: result.outcome.reason, evidence: result.outcome.evidence };
   const evidenceBody = { findingId: id, replay };
   const sha = createHash('sha256').update(JSON.stringify(evidenceBody)).digest('hex');
-  const stored = { ...body, replay };
+  const sealed = options?.evidenceKey ? encrypt(JSON.stringify(evidenceBody), options.evidenceKey) : undefined;
+  const stored = { ...body, contract, replay };
   await transaction(pool, async c => {
     if (result.next === 'VERIFIED') {
       if (!result.outcome.reproduced) throw new Error('verifier_invariant');
@@ -194,9 +198,22 @@ export async function recordReplay(pool: pg.Pool, programId: string, from: State
       await c.query(`INSERT INTO findings(id,program_id,status,body) VALUES($1,$2,'HUMAN_REVIEW',$3)`, [id, programId, JSON.stringify(stored)]);
       await writeAudit(c, programId, 'FINDING_HELD', { metadata: { findingId: id, next: result.next, reason: result.outcome.reason } });
     }
-    await c.query(`INSERT INTO evidence(id,finding_id,sha256,body) VALUES($1,$2,$3,$4)`, [randomUUID(), id, sha, JSON.stringify(evidenceBody)]);
+    await c.query(`INSERT INTO evidence(id,finding_id,sha256,body) VALUES($1,$2,$3,$4)`, [randomUUID(), id, sha, JSON.stringify(sealed ? { ...evidenceBody, sealed } : evidenceBody)]);
   });
   return { id, next: result.next, reproduced: result.outcome.reproduced };
+}
+
+export async function recordCampaignCoverage(pool: pg.Pool, programId: string, summary: Record<string, number>, markdown: string) {
+  await transaction(pool, async c => {
+    await writeAudit(c, programId, 'CAMPAIGN_COVERAGE', { metadata: { ...summary, markdown } });
+  });
+}
+
+export async function retestStored(pool: pg.Pool, findingId: string, responder: Responder): Promise<RetestResult> {
+  const row = await pool.query('SELECT body FROM findings WHERE id=$1', [findingId]);
+  const contract = row.rows[0]?.body?.contract;
+  if (!contract) return { fixed: false, inconclusive: true, reason: 'contract_missing' };
+  return retest(contract, responder);
 }
 
 // A scanner may raise HUMAN_REVIEW. It cannot write VERIFIED or SUBMITTED.

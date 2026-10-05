@@ -91,14 +91,14 @@ export async function replay(rawContract: unknown, responder: Responder): Promis
       let r: StepResponse;
       try { r = await responder(step.id, i); }
       catch { return { reproduced: false, reason: `step_unavailable:${step.id}@${i}`, evidence }; }
-      if (r.unavailable) return { reproduced: false, reason: `step_unavailable:${step.id}@${i}`, evidence };
+      if (r.unavailable || r.status === 0 || r.status >= 500) return { reproduced: false, reason: `step_unavailable:${step.id}@${i}`, evidence };
       evidence.push({ step: step.id, iteration: i, status: r.status });
       if (!stepMatches(step, r)) return { reproduced: false, reason: `step_failed:${step.id}@${i}`, evidence };
     }
     let counter: StepResponse;
     try { counter = await responder(contract.counterTest.id, i); }
     catch { return { reproduced: false, reason: `step_unavailable:${contract.counterTest.id}@${i}`, evidence }; }
-    if (counter.unavailable) return { reproduced: false, reason: `step_unavailable:${contract.counterTest.id}@${i}`, evidence };
+    if (counter.unavailable || counter.status === 0 || counter.status >= 500) return { reproduced: false, reason: `step_unavailable:${contract.counterTest.id}@${i}`, evidence };
     evidence.push({ step: contract.counterTest.id, iteration: i, status: counter.status });
     // The control must HOLD; if it does not, the positive result is not isolable (e.g. everything leaks).
     if (!stepMatches(contract.counterTest, counter)) return { reproduced: false, reason: `counter_test_failed@${i}`, evidence };
