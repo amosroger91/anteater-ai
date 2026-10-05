@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { runAggressive } from '../packages/tool-adapters/aggressive.js';
-import { loadConfig } from '../packages/shared/config.js';
+import { loadOperatorConfig as loadConfig } from '../packages/setup/operator.js';
 
 // Snapshot-gated lab runner (BOUNTY_EARNINGS_PLAN.md Phase 4.5).
 // Refuses unless the host is in LAB_TARGET_HOSTS, the operator passes

@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Anteater setup</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Segoe UI", sans-serif; background: #f3efe6; color: #1d1a16; }
+    header { background: #1d1a16; color: #f3efe6; padding: 28px 20px 22px; }
+    header h1 { margin: 0 0 8px; font-size: 28px; letter-spacing: 0; }
+    header p { margin: 0; max-width: 40rem; line-height: 1.45; }
+    main { max-width: 42rem; margin: 0 auto; padding: 20px; }
+    ol.steps { display: flex; flex-wrap: wrap; gap: 8px; padding: 0; margin: 0 0 18px; list-style: none; }
+    ol.steps button { min-height: 44px; border: 1px solid #1d1a16; background: #fff; color: #1d1a16; padding: 8px 12px; font: inherit; cursor: pointer; }
+    ol.steps button[aria-current="step"] { background: #1d1a16; color: #f3efe6; }
+    section { background: #fff; border: 1px solid #1d1a16; padding: 20px; }
+    h2 { margin: 0 0 8px; font-size: 22px; }
+    p, li { line-height: 1.45; }
+    .help { color: #3d3832; margin-top: 0; }
+    label { display: block; font-weight: 650; margin: 14px 0 6px; }
+    input[type="text"], input[type="password"] { width: 100%; min-height: 44px; font: inherit; padding: 8px 10px; border: 1px solid #1d1a16; background: #fff; color: #1d1a16; }
+    .check { display: flex; gap: 10px; align-items: flex-start; font-weight: 450; margin-top: 14px; }
+    .check input { width: 20px; height: 20px; margin-top: 2px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+    button.primary, button.secondary { min-height: 44px; padding: 10px 16px; font: inherit; cursor: pointer; border: 1px solid #1d1a16; }
+    button.primary { background: #1d1a16; color: #f3efe6; }
+    button.secondary { background: #fff; color: #1d1a16; }
+    button:disabled { cursor: not-allowed; opacity: 0.55; }
+    .error { background: #fff4f0; border: 1px solid #8a2b12; color: #6d1f0c; padding: 10px 12px; margin-bottom: 12px; }
+    .ok { background: #f3efe6; border: 1px solid #1d1a16; padding: 10px 12px; }
+    dl { display: grid; grid-template-columns: 11rem 1fr; gap: 8px 12px; margin: 0; }
+    dt { font-weight: 650; }
+    dd { margin: 0; }
+    pre { white-space: pre-wrap; background: #1d1a16; color: #f3efe6; padding: 12px; overflow-x: auto; }
+    footer { max-width: 42rem; margin: 0 auto; padding: 8px 20px 28px; color: #3d3832; }
+    @media (max-width: 640px) {
+      header h1 { font-size: 24px; }
+      dl { grid-template-columns: 1fr; }
+      ol.steps button { flex: 1 1 100%; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Anteater setup</h1>
+    <p>This page stays on this computer. It stores what a later test run needs. It does not approve a program, turn off the kill switch, or contact a target.</p>
+  </header>
+  <main>
+    <ol class="steps" id="step-list"></ol>
+    <div id="error" class="error" hidden></div>
+    <section id="panel"></section>
+  </main>
+  <footer>Saved values go into <code>secrets/</code>, which git ignores. Keys and passwords are encrypted with Windows DPAPI for this user account.</footer>
+  <script>
+    const steps = [
+      ['keys', 'Keys'],
+      ['approver', 'Approver'],
+      ['hackerone', 'HackerOne'],
+      ['lab', 'Lab'],
+      ['mailbox', 'Mailbox'],
+      ['review', 'Review'],
+    ];
+    const state = {
+      step: 0,
+      status: null,
+      accountKey: '',
+      evidenceKey: '',
+      approver: '',
+      hackeroneUsername: '',
+      hackeroneToken: '',
+      clearHackeroneToken: false,
+      labHosts: '',
+      allowPrivateLabTargets: false,
+      mailboxHost: '',
+      mailboxUsername: '',
+      mailboxPassword: '',
+      clearMailboxPassword: false,
+      mailboxDomain: '',
+    };
+
+    const list = document.querySelector('#step-list');
+    const panel = document.querySelector('#panel');
+    const errorBox = document.querySelector('#error');
+
+    function showError(message) {
+      errorBox.hidden = !message;
+      errorBox.textContent = message || '';
+    }
+
+    function field(label, id, value, type = 'text', hint = '') {
+      return `<label for="${id}">${label}</label>${hint ? `<p class="help">${hint}</p>` : ''}<input id="${id}" name="${id}" type="${type}" value="${escapeHtml(value)}" autocomplete="off">`;
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+    }
+
+    function saved(flag, fresh) {
+      if (fresh) return 'Entered on this page. It is stored when you save, and it is not shown again.';
+      if (flag) return 'Already stored on this machine. Leave the field blank to keep it.';
+      return 'Not stored yet.';
+    }
+
+    function render() {
+      list.replaceChildren();
+      for (const [index, step] of steps.entries()) {
+        const item = document.createElement('li');
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = `${index + 1}. ${step[1]}`;
+        if (index === state.step) button.setAttribute('aria-current', 'step');
+        button.addEventListener('click', () => { readForm(); state.step = index; render(); });
+        item.append(button);
+        list.append(item);
+      }
+      const name = steps[state.step][0];
+      const status = state.status;
+      if (name === 'keys') {
+        panel.innerHTML = `
+          <h2>Keys</h2>
+          <p class="help">Account and evidence keys seal generated test accounts and replay evidence. Generate them here. Anteater does not print them again after you save.</p>
+          <p id="key-state">${state.accountKey ? 'Both keys were generated. They are stored when you save, and they are not shown again.' : saved(status?.accountKeySaved && status?.evidenceKeySaved, false)}</p>
+          <div class="actions">
+            <button class="secondary" id="generate" type="button">Generate keys</button>
+            <button class="primary" id="next" type="button">Next</button>
+          </div>`;
+      } else if (name === 'approver') {
+        panel.innerHTML = `
+          <h2>Approver</h2>
+          <p class="help">This is the person who may later submit a finding. Typing a name does not approve a bug-bounty program.</p>
+          ${field('Name', 'approver', state.approver, 'text', 'At least two characters when you set it.')}
+          <div class="actions">${nav()}</div>`;
+      } else if (name === 'hackerone') {
+        panel.innerHTML = `
+          <h2>HackerOne</h2>
+          <p class="help">Optional. The token is stored for a later intake command. This page does not call HackerOne.</p>
+          ${field('Username', 'hackeroneUsername', state.hackeroneUsername)}
+          ${field('API token', 'hackeroneToken', '', 'password', saved(status?.hackeroneTokenSaved, state.hackeroneToken))}
+          <label class="check"><input id="clearHackeroneToken" type="checkbox" ${state.clearHackeroneToken ? 'checked' : ''}> Remove the stored token</label>
+          <div class="actions">${nav()}</div>`;
+      } else if (name === 'lab') {
+        panel.innerHTML = `
+          <h2>Owned lab</h2>
+          <p class="help">Hostnames only, separated by commas. Setup does not connect to them. A private address is allowed later only for a hostname you list here, and only while that flag is on. Loopback stays blocked. Aggressive runs still need a snapshot attestation at the time you start them.</p>
+          ${field('Lab hostnames', 'labHosts', state.labHosts, 'text', 'Example: lab.anteater.test')}
+          <label class="check"><input id="allowPrivateLabTargets" type="checkbox" ${state.allowPrivateLabTargets ? 'checked' : ''}> Allow private addresses for these hostnames only</label>
+          <div class="actions">${nav()}</div>`;
+      } else if (name === 'mailbox') {
+        panel.innerHTML = `
+          <h2>Mailbox</h2>
+          <p class="help">Optional. Use this for a test inbox the research profile names as MAILBOX_USERNAME and MAILBOX_PASSWORD. Leave every field blank to skip it.</p>
+          ${field('IMAP host', 'mailboxHost', state.mailboxHost)}
+          ${field('Username', 'mailboxUsername', state.mailboxUsername)}
+          ${field('Password', 'mailboxPassword', '', 'password', saved(status?.mailboxPasswordSaved, state.mailboxPassword))}
+          ${field('Email domain', 'mailboxDomain', state.mailboxDomain, 'text', 'Example: mail.example.test')}
+          <label class="check"><input id="clearMailboxPassword" type="checkbox" ${state.clearMailboxPassword ? 'checked' : ''}> Remove the stored mailbox password</label>
+          <div class="actions">${nav()}</div>`;
+      } else {
+        const typedProgram = state.approver.trim().length >= 2 && state.hackeroneUsername.trim() && (state.hackeroneToken || status?.hackeroneTokenSaved) && !state.clearHackeroneToken;
+        const ready = status?.programReady ? 'Program intake details are stored.' : (typedProgram ? 'Program intake details are ready to store.' : 'Program intake still needs an approver, a HackerOne username, and a token.');
+        panel.innerHTML = `
+          <h2>Review and save</h2>
+          <dl>
+            <dt>Keys</dt><dd>${status?.keysReady || state.accountKey ? 'Ready to store' : 'Not set'}</dd>
+            <dt>Approver</dt><dd>${escapeHtml(state.approver || status?.approver || 'Not set')}</dd>
+            <dt>HackerOne user</dt><dd>${escapeHtml(state.hackeroneUsername || status?.hackeroneUsername || 'Not set')}</dd>
+            <dt>HackerOne token</dt><dd>${state.hackeroneToken || status?.hackeroneTokenSaved ? 'Stored, not shown' : 'Not set'}</dd>
+            <dt>Lab hosts</dt><dd>${escapeHtml(state.labHosts || status?.labHosts || 'Not set')}</dd>
+            <dt>Private lab</dt><dd>${state.allowPrivateLabTargets ? 'On for the listed hostnames' : 'Off'}</dd>
+            <dt>Mailbox</dt><dd>${state.mailboxHost ? escapeHtml(state.mailboxHost) : (status?.mailboxHost || 'Not set')}</dd>
+            <dt>Database</dt><dd>Local default, unchanged</dd>
+            <dt>Kill switch</dt><dd>Stays on</dd>
+          </dl>
+          <p>${ready} No target is contacted by saving.</p>
+          <p class="help">When you are watching an owned lab, start one bounded pass from a shell. Policy still has to allow the host.</p>
+          <pre>$env:GLOBAL_KILL_SWITCH = 'false'
+$env:ENABLE_PASSIVE_HTTP = 'true'
+npm run worker -- --once</pre>
+          <div class="actions">
+            <button class="secondary" id="back" type="button">Back</button>
+            <button class="primary" id="save" type="button">Save on this machine</button>
+          </div>
+          <p id="saved" class="ok" hidden>Saved. Secrets stay in secrets/ and are not written to the repository.</p>`;
+      }
+      document.querySelector('#generate')?.addEventListener('click', generate);
+      document.querySelector('#next')?.addEventListener('click', () => move(1));
+      document.querySelector('#back')?.addEventListener('click', () => move(-1));
+      document.querySelector('#save')?.addEventListener('click', save);
+    }
+
+    function nav() {
+      return `<button class="secondary" id="back" type="button">Back</button><button class="primary" id="next" type="button">Next</button>`;
+    }
+
+    function readForm() {
+      const value = id => document.querySelector('#' + id)?.value ?? null;
+      const checked = id => document.querySelector('#' + id)?.checked;
+      if (value('approver') !== null) state.approver = value('approver');
+      if (value('hackeroneUsername') !== null) state.hackeroneUsername = value('hackeroneUsername');
+      if (value('hackeroneToken') !== null && value('hackeroneToken') !== '') state.hackeroneToken = value('hackeroneToken');
+      if (checked('clearHackeroneToken') !== undefined) state.clearHackeroneToken = checked('clearHackeroneToken');
+      if (value('labHosts') !== null) state.labHosts = value('labHosts');
+      if (checked('allowPrivateLabTargets') !== undefined) state.allowPrivateLabTargets = checked('allowPrivateLabTargets');
+      if (value('mailboxHost') !== null) state.mailboxHost = value('mailboxHost');
+      if (value('mailboxUsername') !== null) state.mailboxUsername = value('mailboxUsername');
+      if (value('mailboxPassword') !== null && value('mailboxPassword') !== '') state.mailboxPassword = value('mailboxPassword');
+      if (checked('clearMailboxPassword') !== undefined) state.clearMailboxPassword = checked('clearMailboxPassword');
+      if (value('mailboxDomain') !== null) state.mailboxDomain = value('mailboxDomain');
+    }
+
+    function move(delta) {
+      readForm();
+      state.step = Math.max(0, Math.min(steps.length - 1, state.step + delta));
+      showError('');
+      render();
+    }
+
+    async function generate() {
+      showError('');
+      const response = await fetch('/api/keys', { method: 'POST' });
+      const body = await response.json();
+      if (!response.ok) { showError(body.error || 'Could not generate keys.'); return; }
+      state.accountKey = body.accountKey;
+      state.evidenceKey = body.evidenceKey;
+      render();
+    }
+
+    async function save() {
+      readForm();
+      showError('');
+      const response = await fetch('/api/setup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          approver: state.approver,
+          hackeroneUsername: state.hackeroneUsername,
+          hackeroneToken: state.hackeroneToken,
+          clearHackeroneToken: state.clearHackeroneToken,
+          labHosts: state.labHosts,
+          allowPrivateLabTargets: state.allowPrivateLabTargets,
+          accountKey: state.accountKey,
+          evidenceKey: state.evidenceKey,
+          mailboxHost: state.mailboxHost,
+          mailboxUsername: state.mailboxUsername,
+          mailboxPassword: state.mailboxPassword,
+          clearMailboxPassword: state.clearMailboxPassword,
+          mailboxDomain: state.mailboxDomain,
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) { showError(messageFor(body.error)); return; }
+      state.status = body;
+      state.accountKey = '';
+      state.evidenceKey = '';
+      state.hackeroneToken = '';
+      state.mailboxPassword = '';
+      state.clearHackeroneToken = false;
+      state.clearMailboxPassword = false;
+      render();
+      const saved = document.querySelector('#saved');
+      if (saved) saved.hidden = false;
+    }
+
+    function messageFor(code) {
+      const messages = {
+        invalid_setup: 'Check the fields and try again.',
+        invalid_lab_host: 'Lab hosts must be DNS names, separated by commas.',
+        lab_hosts_required: 'List at least one lab hostname before allowing private addresses.',
+        invalid_approver: 'The approver name needs at least two characters.',
+        invalid_hackerone_username: 'The HackerOne username can use lowercase letters, numbers, hyphens, and underscores.',
+        mailbox_incomplete: 'Fill every mailbox field, or leave them all blank.',
+        invalid_mailbox_host: 'The mailbox host must be a DNS name.',
+        invalid_mailbox_domain: 'The email domain must be a DNS name.',
+        setup_key_protection_failed: 'Windows could not protect the setup key.',
+        setup_unreadable: 'The saved setup could not be opened.',
+      };
+      return messages[code] || 'Setup could not be saved.';
+    }
+
+    async function load() {
+      const response = await fetch('/api/status');
+      state.status = await response.json();
+      state.approver = state.status.approver || '';
+      state.hackeroneUsername = state.status.hackeroneUsername || '';
+      state.labHosts = state.status.labHosts || '';
+      state.allowPrivateLabTargets = Boolean(state.status.allowPrivateLabTargets);
+      state.mailboxHost = state.status.mailboxHost || '';
+      state.mailboxUsername = state.status.mailboxUsername || '';
+      state.mailboxDomain = state.status.mailboxDomain || '';
+      render();
+    }
+    load();
+  </script>
+</body>
+</html>

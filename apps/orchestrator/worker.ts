@@ -1,5 +1,5 @@
 import { setTimeout as sleep } from 'node:timers/promises';
-import { loadConfig } from '../../packages/shared/config.js';
+import { loadOperatorConfig as loadConfig } from '../../packages/setup/operator.js';
 import { log } from '../../packages/shared/log.js';
 import { connect, migrate } from '../../packages/research-state/db.js';
 import { saveProgram, exportWorkspace } from '../../packages/research-state/workspace.js';

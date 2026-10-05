@@ -11,7 +11,7 @@ const port=55439;
 const postgres=new EmbeddedPostgres({databaseDir:join(directory,'data'),user:'anteater',password,port,persistent:true,
   postgresFlags:['-h','127.0.0.1'],onLog:()=>{},onError:()=>{}});
 const env={...process.env,DATABASE_URL:`postgresql://anteater:${password}@127.0.0.1:${port}/anteater`,GLOBAL_KILL_SWITCH:'false',
-  PROGRAM_SOURCE:'fixture',ENABLE_PASSIVE_HTTP:'false',LLM_PROVIDER:'fixture',MAX_CONCURRENT_JOBS:'1'};
+  PROGRAM_SOURCE:'fixture',ENABLE_PASSIVE_HTTP:'false',LLM_PROVIDER:'fixture',MAX_CONCURRENT_JOBS:'1',ANTEATER_USE_SETUP:'false'};
 const run=(args:string[])=>new Promise<void>((resolve,reject)=>{
   const child=spawn(process.execPath,['--import','tsx',...args],{env,stdio:'inherit'});
   child.on('error',reject); child.on('exit',code=>code===0?resolve():reject(new Error(`verification_exit_${code}`)));

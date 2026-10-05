@@ -4,7 +4,7 @@ import { CertTransparencyDiscovery } from '../packages/discovery/adapters.js';
 import { runMonitorCycle } from '../packages/discovery/monitor.js';
 import { PassiveDnsDiscovery, SubfinderDiscovery, type ExecLike } from '../packages/discovery/more-adapters.js';
 import { connect } from '../packages/research-state/db.js';
-import { loadConfig } from '../packages/shared/config.js';
+import { loadOperatorConfig as loadConfig } from '../packages/setup/operator.js';
 
 // Scheduled discovery (BOUNTY_EARNINGS_PLAN.md Phase 2.3). The process kill
 // switch refuses the run before any source is called. Certificate transparency

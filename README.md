@@ -20,6 +20,36 @@ Fixture/reviewed file -> validated policy + PostgreSQL -> concurrent leased jobs
 
 See [architecture](docs/ARCHITECTURE.md), [implemented improvements](docs/EXECUTION_IMPROVEMENTS.md), [model contract](docs/DETERMINISTIC_MODEL.md), and [readiness checklist](docs/READINESS.md).
 
+## Setup
+
+Run `npm run setup`. Your browser opens a wizard at `http://127.0.0.1:4317/` that stays on this computer. Click through keys, the approver's name, an optional HackerOne username and token, owned-lab hostnames, and an optional mailbox. Saving does not call HackerOne, contact a lab host, approve a program, or turn off the kill switch.
+
+The wizard encrypts the values with Windows DPAPI for the current user and writes them under `secrets/`, which git ignores. `worker`, `monitor`, `aggressive`, and `fleet` read that file when it exists. A value already set in the environment wins. `npm run verify:local` sets `ANTEATER_USE_SETUP=false`, so the fixture run ignores a setup file on the machine.
+
+The screenshots use example text. The token is typed into a password field and is not shown again after save.
+
+![Keys step, with nothing stored yet](docs/images/setup-keys.png)
+
+![HackerOne step. The token is masked.](docs/images/setup-hackerone.png)
+
+![Review step, ready to save](docs/images/setup-review.png)
+
+![Saved on this machine](docs/images/setup-saved.png)
+
+The same first step on a narrow screen:
+
+![Keys step on a phone-width screen](docs/images/setup-keys-mobile.png)
+
+When you are watching an owned lab, start one bounded pass from a shell. The policy still has to allow the host:
+
+```powershell
+$env:GLOBAL_KILL_SWITCH = 'false'
+$env:ENABLE_PASSIVE_HTTP = 'true'
+npm run worker -- --once
+```
+
+An aggressive run still needs `--snapshot-confirmed` and `--n8n-attested`, and the host still has to be in the lab list. Setup does not store those attestations.
+
 ## Bounty review inbox
 
 Public bug-bounty platforms do not offer an anonymous API that returns domains together with the rules for testing them. The free source is the public scope dump at `arkadiyt/bounty-targets-data` (HackerOne, Bugcrowd, Intigriti, YesWeHack, and Federacy). A listed host is not permission to scan it. The inbox stores one named program at a time, with exclusions beside the in-scope assets, and the posture scanner cannot read that file.
@@ -93,6 +123,7 @@ Phases 0 through 6 of the [bounty earnings plan](docs/BOUNTY_EARNINGS_PLAN.md) a
 
 | In the current checkout | Still needed for production |
 | --- | --- |
+| `npm run setup` stores keys, an approver name, HackerOne credentials, lab hostnames, and an optional mailbox in a DPAPI-encrypted file under `secrets/`. The kill switch stays on | A named human still has to approve real programs. Setup does not contact a target |
 | Reviewed domain-list profile, live campaign planner, bounded passive HTTPS collector, process egress checks, and PostgreSQL leases | Host and container egress isolation, and scheduled revisits of hosts already admitted |
 | HackerOne intake limited to `https://api.hackerone.com`: injectable fetch, automation class, hash-checked approval, and `program_approvals` | A named human approving three real handles. The library does not call the live API and does not read credentials from the environment |
 | Lab staging loop: a seeded IDOR is reproduced, the patched variant is rejected, and `SUBMITTED` requires a human reviewer | Impact-ranked reports and a human submission against a real program |
@@ -109,7 +140,7 @@ Phases 0 through 6 of the [bounty earnings plan](docs/BOUNTY_EARNINGS_PLAN.md) a
 
 The checked-in Kali container is an inert, network-disabled boundary demonstration. `ENABLE_PASSIVE_HTTP=true` enables only the reviewed read-only worker adapter. Application research additionally requires `ENABLE_APPLICATION_RESEARCH=true`; login, signup, resource creation and replay require `ALLOW_ACTIVE_TESTING=true` plus explicit profile paths. These switches do not replace host/container egress isolation.
 
-The latest post-change check on this branch passed `npm run build`, **169 unit tests**, `npm run gate` (11/11, 0 false positives), and `npm run verify:local` (including the authorized source-file observation, the fleet ledger, backup restore, and crash recovery). The browser suite was last run for the ownership probes (5 tests) and was not re-run after that. No research target, real login, or real mailbox was tested. `npm run aggressive` was not pointed at a live host. The `docs/READINESS.md` production boxes were not checked. See [validation details](docs/VALIDATION.md), the [production roadmap](docs/PRODUCTION_ROADMAP.md), and [readiness gates](docs/READINESS.md). Native PostgreSQL provided the local integration-test path; local Docker runtime and real model inference remain unverified.
+The latest post-change check passed `npm run build` and **174 unit tests**, including the wizard's save and redaction tests. The setup screenshots came from a local click-through in headless Chromium. `npm run gate` was last 11/11 with 0 false positives, and `npm run verify:local` last passed before this wizard; neither was re-run for the setup page. The browser suite was last run for the ownership probes (5 tests). No research target, real login, or real mailbox was tested. `npm run aggressive` was not pointed at a live host. The `docs/READINESS.md` production boxes were not checked. See [validation details](docs/VALIDATION.md), the [production roadmap](docs/PRODUCTION_ROADMAP.md), and [readiness gates](docs/READINESS.md). Native PostgreSQL provided the local integration-test path; local Docker runtime and real model inference remain unverified.
 
 ## Quick start
 
@@ -166,6 +197,7 @@ Without Docker, `npm run verify:local` starts temporary PostgreSQL, runs integra
 
 | Command | Purpose |
 | --- | --- |
+| `npm run setup` | Local wizard for keys, approver, HackerOne, lab hostnames, and an optional mailbox. Writes only to `secrets/` |
 | `npm run check` | Compile TypeScript and run unit tests |
 | `npm run test:integration` | Test a running PostgreSQL in an isolated schema |
 | `npm run verify:local` | Temporary native PostgreSQL, integration tests, fixture replay |
@@ -193,6 +225,8 @@ Without `--once`, the worker drains follow-ups/retries and sweeps pending export
 
 ```text
 apps/orchestrator/       fixture demo, concurrent worker, and live campaign planner
+apps/setup/              local click-through setup wizard
+packages/setup/          encrypted operator profile and DPAPI key protection
 packages/application-research/ bounded browser sessions, accounts, mailbox and ownership replay
 packages/program-intake/ HackerOne fetch, automation class, and reviewed compile
 packages/discovery/     candidate discovery, scope admission, budgets, history, and the monitor cycle

@@ -11,6 +11,7 @@
     "test": "tsx --test tests/*.test.ts",
     "test:integration": "tsx --test tests/integration/*.test.ts",
     "db:migrate": "tsx scripts/migrate.ts",
+    "setup": "tsx scripts/setup.ts",
     "demo": "tsx apps/orchestrator/demo.ts",
     "worker": "tsx apps/orchestrator/worker.ts",
     "research": "tsx apps/orchestrator/worker.ts --research",

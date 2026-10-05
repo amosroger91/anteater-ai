@@ -1,4 +1,4 @@
-import { loadConfig } from '../packages/shared/config.js';
+import { loadOperatorConfig as loadConfig } from '../packages/setup/operator.js';
 import { connect } from '../packages/research-state/db.js';
 import { runFleetIteration } from '../packages/operations/fleet.js';
 
