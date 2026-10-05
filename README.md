@@ -28,7 +28,7 @@ The wizard encrypts the values with Windows DPAPI for the current user and write
 
 The screenshots use example text. The token is typed into a password field and is not shown again after save.
 
-![Keys step, with nothing stored yet](docs/images/setup-keys.png)
+![Keys step, after the keys are generated](docs/images/setup-keys.png)
 
 ![HackerOne step. The token is masked.](docs/images/setup-hackerone.png)
 
@@ -58,17 +58,7 @@ An aggressive run still needs `--snapshot-confirmed` and `--n8n-attested`, and t
 
 ## What a run writes
 
-There is no screen that shows a test while it runs. `npm run demo` is one fixture pass. It uses a temporary local database, records one synthetic observation for `https://api.example.test/`, and does not open a network connection. The log is JSON on the terminal. The readable result is markdown under `programs/fixture-company/`, which git ignores.
-
-![Fixture program record](docs/images/run-program.png)
-
-![Fixture observation. The note says no network request was performed.](docs/images/run-recon.png)
-
-![Completed fixture job](docs/images/run-history.png)
-
-![Fixture findings file, still empty](docs/images/run-findings.png)
-
-![Fixture hypothesis. The label is no_signal.](docs/images/run-hypotheses.png)
+There is no screen that shows a test while it runs. `npm run demo` prints a JSON log and writes markdown under `programs/`, which git ignores. A fixture pass records a synthetic observation and does not open a network connection.
 
 ## Bounty review inbox
 

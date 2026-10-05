@@ -89,8 +89,9 @@
       errorBox.textContent = message || '';
     }
 
-    function field(label, id, value, type = 'text', hint = '') {
-      return `<label for="${id}">${label}</label>${hint ? `<p class="help">${hint}</p>` : ''}<input id="${id}" name="${id}" type="${type}" value="${escapeHtml(value)}" autocomplete="off">`;
+    function field(label, id, value, type = 'text', hint = '', savedFlag = '') {
+      const hintId = savedFlag ? ` id="${id}-hint" data-saved="${savedFlag}"` : '';
+      return `<label for="${id}">${label}</label>${hint ? `<p class="help"${hintId}>${hint}</p>` : ''}<input id="${id}" name="${id}" type="${type}" value="${escapeHtml(value)}" autocomplete="off">`;
     }
 
     function escapeHtml(value) {
@@ -137,7 +138,7 @@
           <h2>HackerOne</h2>
           <p class="help">Optional. The token is stored for a later intake command. This page does not call HackerOne.</p>
           ${field('Username', 'hackeroneUsername', state.hackeroneUsername)}
-          ${field('API token', 'hackeroneToken', '', 'password', saved(status?.hackeroneTokenSaved, state.hackeroneToken))}
+          ${field('API token', 'hackeroneToken', '', 'password', saved(status?.hackeroneTokenSaved, state.hackeroneToken), 'hackeroneTokenSaved')}
           <label class="check"><input id="clearHackeroneToken" type="checkbox" ${state.clearHackeroneToken ? 'checked' : ''}> Remove the stored token</label>
           <div class="actions">${nav()}</div>`;
       } else if (name === 'lab') {
@@ -153,7 +154,7 @@
           <p class="help">Optional. Use this for a test inbox the research profile names as MAILBOX_USERNAME and MAILBOX_PASSWORD. Leave every field blank to skip it.</p>
           ${field('IMAP host', 'mailboxHost', state.mailboxHost)}
           ${field('Username', 'mailboxUsername', state.mailboxUsername)}
-          ${field('Password', 'mailboxPassword', '', 'password', saved(status?.mailboxPasswordSaved, state.mailboxPassword))}
+          ${field('Password', 'mailboxPassword', '', 'password', saved(status?.mailboxPasswordSaved, state.mailboxPassword), 'mailboxPasswordSaved')}
           ${field('Email domain', 'mailboxDomain', state.mailboxDomain, 'text', 'Example: mail.example.test')}
           <label class="check"><input id="clearMailboxPassword" type="checkbox" ${state.clearMailboxPassword ? 'checked' : ''}> Remove the stored mailbox password</label>
           <div class="actions">${nav()}</div>`;
@@ -163,10 +164,10 @@
         panel.innerHTML = `
           <h2>Review and save</h2>
           <dl>
-            <dt>Keys</dt><dd>${status?.keysReady || state.accountKey ? 'Ready to store' : 'Not set'}</dd>
+            <dt>Keys</dt><dd>${state.accountKey ? 'Ready to store' : (status?.keysReady ? 'Stored' : 'Not set')}</dd>
             <dt>Approver</dt><dd>${escapeHtml(state.approver || status?.approver || 'Not set')}</dd>
             <dt>HackerOne user</dt><dd>${escapeHtml(state.hackeroneUsername || status?.hackeroneUsername || 'Not set')}</dd>
-            <dt>HackerOne token</dt><dd>${state.hackeroneToken || status?.hackeroneTokenSaved ? 'Stored, not shown' : 'Not set'}</dd>
+            <dt>HackerOne token</dt><dd>${state.clearHackeroneToken ? 'Will be removed' : (state.hackeroneToken ? 'Entered, not shown' : (status?.hackeroneTokenSaved ? 'Stored, not shown' : 'Not set'))}</dd>
             <dt>Lab hosts</dt><dd>${escapeHtml(state.labHosts || status?.labHosts || 'Not set')}</dd>
             <dt>Private lab</dt><dd>${state.allowPrivateLabTargets ? 'On for the listed hostnames' : 'Off'}</dd>
             <dt>Mailbox</dt><dd>${state.mailboxHost ? escapeHtml(state.mailboxHost) : (status?.mailboxHost || 'Not set')}</dd>
@@ -188,6 +189,16 @@ npm run worker -- --once</pre>
       document.querySelector('#next')?.addEventListener('click', () => move(1));
       document.querySelector('#back')?.addEventListener('click', () => move(-1));
       document.querySelector('#save')?.addEventListener('click', save);
+      for (const input of panel.querySelectorAll('input[type="password"]')) {
+        input.addEventListener('input', () => {
+          const hint = document.querySelector('#' + input.id + '-hint');
+          if (!hint) return;
+          const already = state.status?.[hint.dataset.saved];
+          hint.textContent = input.value
+            ? 'Entered on this page. It is stored when you save, and it is not shown again.'
+            : (already ? 'Already stored on this machine. Leave the field blank to keep it.' : 'Not stored yet.');
+        });
+      }
     }
 
     function nav() {
