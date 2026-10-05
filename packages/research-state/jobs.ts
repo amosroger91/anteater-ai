@@ -1,6 +1,7 @@
 import type pg from 'pg';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { AnalysisFailure, AnalysisRun } from '../agent-runtime/index.js';
+import { verifyCandidate, type Responder, type State } from '../findings/index.js';
 import { transaction } from './db.js';
 import { authorize, PolicySchema, targetForAction, type Action } from '../scope-engine/index.js';
 import { followUpActions, jobKey } from '../web-executor/planning.js';
@@ -171,6 +172,31 @@ async function writeAudit(c: pg.PoolClient, programId: string, event: string, fi
   await c.query(`INSERT INTO audit_events(id,event,program_id,job_id,asset_id,metadata,prev_hash,hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, [
     randomUUID(), event, programId, fields.jobId ?? null, fields.assetId ?? null, JSON.stringify(fields.metadata), prevHash, hash,
   ]);
+}
+
+// VERIFIED is written only after deterministic replay, and only with the verifier actor.
+// The caller supplies a responder; it does not supply the next state.
+export async function recordReplay(pool: pg.Pool, programId: string, from: State, contract: unknown, responder: Responder, body: Record<string, unknown>) {
+  const result = await verifyCandidate(from, contract, responder);
+  if (!result.transition.ok) throw new Error(result.transition.reason);
+  const id = randomUUID();
+  const replay = { reproduced: result.outcome.reproduced, reason: result.outcome.reason, evidence: result.outcome.evidence };
+  const evidenceBody = { findingId: id, replay };
+  const sha = createHash('sha256').update(JSON.stringify(evidenceBody)).digest('hex');
+  const stored = { ...body, replay };
+  await transaction(pool, async c => {
+    if (result.next === 'VERIFIED') {
+      if (!result.outcome.reproduced) throw new Error('verifier_invariant');
+      await c.query(`SELECT set_config('anteater.actor', 'verifier', true)`);
+      await c.query(`INSERT INTO findings(id,program_id,status,body,verified_by) VALUES($1,$2,'VERIFIED',$3,'deterministic-replay')`, [id, programId, JSON.stringify(stored)]);
+      await writeAudit(c, programId, 'FINDING_VERIFIED', { metadata: { findingId: id, reason: result.outcome.reason } });
+    } else {
+      await c.query(`INSERT INTO findings(id,program_id,status,body) VALUES($1,$2,'HUMAN_REVIEW',$3)`, [id, programId, JSON.stringify(stored)]);
+      await writeAudit(c, programId, 'FINDING_HELD', { metadata: { findingId: id, next: result.next, reason: result.outcome.reason } });
+    }
+    await c.query(`INSERT INTO evidence(id,finding_id,sha256,body) VALUES($1,$2,$3,$4)`, [randomUUID(), id, sha, JSON.stringify(evidenceBody)]);
+  });
+  return { id, next: result.next, reproduced: result.outcome.reproduced };
 }
 
 export async function submitFinding(pool: pg.Pool, findingId: string, reviewer: string) {

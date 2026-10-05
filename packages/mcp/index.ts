@@ -3,13 +3,15 @@ import type { Config } from '../shared/config.js';
 import { ActionSchema, authorize, PolicySchema, targetForAction } from '../scope-engine/index.js';
 import { acquireRate, type Job } from '../research-state/jobs.js';
 import { log } from '../shared/log.js';
-import { executePassiveHttp } from '../web-executor/index.js';
+import { executePassiveHttp, parseLabTargetAllow, type PassiveDeps } from '../web-executor/index.js';
+import type { ResearchDeps } from '../application-research/index.js';
 import { ProgramBudget } from '../budget/index.js';
 import { setTimeout as sleep } from 'node:timers/promises';
 
+export interface GatewayExecutors { passive?: PassiveDeps; research?: ResearchDeps }
 export class ToolGateway {
   private budgets = new Map<string, ProgramBudget>();
-  constructor(private pool: pg.Pool, private config: () => Config) {}
+  constructor(private pool: pg.Pool, private config: () => Config, private executors: GatewayExecutors = {}) {}
   private applicationBudget(programId: string, requestsPerSecond: number): ProgramBudget {
     const existing = this.budgets.get(programId);
     if (existing) return existing;
@@ -76,14 +78,17 @@ export class ToolGateway {
           } finally { budget.done(); }
           if (limited) await sleep(100, undefined, { signal: requestSignal });
         }
-      }, signal);
+      }, signal, this.executors.research);
     }
     if (fixture) {
       await reserve();
       log('TOOL_EXECUTED',{program:job.program_id,job:job.id,asset:assetId,result:'fixture'});
       return { kind:'OBSERVATION', fixture:true, assetId, target, status:200, headers:{ 'content-type':'application/json' }, note:'Synthetic response; no network request performed.' };
     }
-    const observation = await executePassiveHttp(target, { maxBytes: config.MAX_RESPONSE_BYTES, signal, beforeRequest: reserve });
+    const observation = await executePassiveHttp(target, {
+      maxBytes: config.MAX_RESPONSE_BYTES, signal, beforeRequest: reserve, deps: this.executors.passive,
+      labTargets: parseLabTargetAllow(config.ALLOW_PRIVATE_LAB_TARGETS, config.LAB_TARGET_HOSTS),
+    });
     log('TOOL_EXECUTED',{program:job.program_id,job:job.id,asset:assetId,result:'http-passive'});
     return { ...observation, assetId };
   }
