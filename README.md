@@ -89,7 +89,7 @@ Use a normal clone followed by `deps:sync`; recursive submodule cloning can down
 
 ## Current implementation and next steps
 
-Phases 0 and 1 of the [bounty earnings plan](docs/BOUNTY_EARNINGS_PLAN.md) are in this checkout. They are local code with fixture proof. They are not production operation. The Phase 1 exit — three real programs compiled and approved by a named human — is not met. No live platform call was made.
+Phases 0 through 2 of the [bounty earnings plan](docs/BOUNTY_EARNINGS_PLAN.md) are in this checkout. They are local code with fixture proof. They are not production operation. The Phase 1 exit — three real programs compiled and approved by a named human — is not met. No live platform call was made.
 
 | In the current checkout | Still needed for production |
 | --- | --- |
@@ -99,14 +99,14 @@ Phases 0 and 1 of the [bounty earnings plan](docs/BOUNTY_EARNINGS_PLAN.md) are i
 | Opt-in Playwright research with two isolated accounts, identity checks, optional encrypted generated accounts and IMAP verification | Real owned-staging validation beyond the lab fixture, role-aware credential service, account lifecycle, and verified browser/network isolation |
 | Eight passive posture coverage checks, a 13-reference WSTG/ASVS registry, fixture gates, API inventory and offline analyzers | Broader methodology coverage and integration of checks into the live campaign |
 | Deterministic replay for `VERIFIED`, and a human actor plus reviewer name for `SUBMITTED` | Evidence key management |
-| Certificate-transparency, passive DNS, and Subfinder adapters as injectable candidate sources | A budgeted scheduler that admits only signed hosts and enqueues only newly exposed in-scope names (Phase 2) |
+| Budgeted discovery monitor for automation-permitted programs: certificate transparency, passive DNS, and Subfinder stay injectable; only a newly exposed in-scope host is queued | Paid-severity detectors (Phase 3). The monitor does not fetch a discovered host; a later worker does, and only for a queued in-scope asset |
 | 29 pinned source/data dependencies and update checks | Reviewed runtime tool adapters, authenticated MCP, operational monitoring and recovery drills |
 
 `GLOBAL_KILL_SWITCH` stays default-on. `ENABLE_PASSIVE_HTTP` and `ENABLE_APPLICATION_RESEARCH` stay default-off. `ALLOW_PRIVATE_LAB_TARGETS` admits a private address only for a hostname listed in `LAB_TARGET_HOSTS` while that flag is on. Loopback and link-local addresses stay blocked. These phases do not contact a real bug-bounty program.
 
 The checked-in Kali container is an inert, network-disabled boundary demonstration. `ENABLE_PASSIVE_HTTP=true` enables only the reviewed read-only worker adapter. Application research additionally requires `ENABLE_APPLICATION_RESEARCH=true`; login, signup, resource creation and replay require `ALLOW_ACTIVE_TESTING=true` plus explicit profile paths. These switches do not replace host/container egress isolation.
 
-The latest post-change check on this branch passed `npm run build`, **153 unit tests**, `npm run gate` (5 cases, 0 false positives), and `npm run verify:local` (state, program intake, staging loop, and one fixture replay). The browser suite was not rerun; these phases did not change browser tests. Browser tests use real Chromium with an injected synthetic application transport and mailbox. No research target, real login, or real mailbox was tested. See [validation details](docs/VALIDATION.md), the [production roadmap](docs/PRODUCTION_ROADMAP.md), and [readiness gates](docs/READINESS.md). Native PostgreSQL provided the local integration-test path; local Docker runtime and real model inference remain unverified.
+The latest post-change check on this branch passed `npm run build`, **156 unit tests**, `npm run gate` (5 cases, 0 false positives), and `npm run verify:local` (state, program intake, staging loop, discovery history, discovery monitor, and one fixture replay). The browser suite was not rerun; these phases did not change browser tests. Browser tests use real Chromium with an injected synthetic application transport and mailbox. No research target, real login, or real mailbox was tested. See [validation details](docs/VALIDATION.md), the [production roadmap](docs/PRODUCTION_ROADMAP.md), and [readiness gates](docs/READINESS.md). Native PostgreSQL provided the local integration-test path; local Docker runtime and real model inference remain unverified.
 
 ## Quick start
 
@@ -169,6 +169,7 @@ Without Docker, `npm run verify:local` starts temporary PostgreSQL, runs integra
 | `npm run db:migrate` | Apply ordered, idempotent schema migrations |
 | `npm run demo` | One bounded fixture iteration; explicit kill-switch override required |
 | `npm run worker -- --once` | Seed reviewed root jobs and process one bounded batch with lease heartbeats |
+| `npm run monitor -- --once` | One discovery cycle for automation-permitted programs. Refuses to start while `GLOBAL_KILL_SWITCH` is true. Certificate transparency uses only `https://crt.sh`. Subfinder runs only when `SUBFINDER_BIN` is an absolute path. The default passive-DNS resolver returns no names |
 | `npm run research -- --domains=<file> --profile=<file>` | Queue the submitted domains using a reviewed research profile; application research must be explicitly enabled |
 | `npm run test:browser` | Chromium integration tests against the synthetic research lab |
 | `npm run models:inspect` | Detect NVIDIA VRAM and display conservative setup guidance |
@@ -183,7 +184,7 @@ Without Docker, `npm run verify:local` starts temporary PostgreSQL, runs integra
 | `npm run posture:scan -- <csv> --policy=<json>` | Policy-bound posture scan; one URL per row |
 | `npm run posture:check -- <url>` | Read-only check of one host, outside the CSV |
 
-Without `--once`, the worker drains follow-ups/retries and sweeps pending exports until stopped. It loads manifests once at startup. Completed targets are not periodically rescanned; new reviewed revisions produce new jobs. The `research` entry point scans only submitted roots. Certificate-transparency, passive DNS, and Subfinder adapters return candidates in tests; they are not wired into `npm run research` or a scheduler yet. A profile's `reviewed: true` field is operator input, not authenticated proof of approval. See [reviewed manifest setup](docs/OPERATIONS.md#reviewed-program-worker). Authenticated HTTP/MCP control remains future work.
+Without `--once`, the worker drains follow-ups/retries and sweeps pending exports until stopped. It loads manifests once at startup. Completed targets are not periodically rescanned; new reviewed revisions produce new jobs. The `research` entry point scans only submitted roots. `npm run monitor` is the discovery scheduler: it records every observed name and queues a passive check only for a newly exposed host the signed policy admits. A denied budget, a revoked program, or the database kill switch skips that cycle before a source is called. A profile's `reviewed: true` field is operator input, not authenticated proof of approval. See [reviewed manifest setup](docs/OPERATIONS.md#reviewed-program-worker). Authenticated HTTP/MCP control remains future work.
 
 ## Project structure
 
@@ -191,7 +192,8 @@ Without `--once`, the worker drains follow-ups/retries and sweeps pending export
 apps/orchestrator/       fixture demo, concurrent worker, and live campaign planner
 packages/application-research/ bounded browser sessions, accounts, mailbox and ownership replay
 packages/program-intake/ HackerOne fetch, automation class, and reviewed compile
-packages/discovery/     candidate discovery, scope admission and adapters
+packages/discovery/     candidate discovery, scope admission, budgets, history, and the monitor cycle
+scripts/monitor.ts       scheduled discovery; does not contact a held host
 packages/coverage/      WSTG/ASVS check registry and coverage reports
 packages/findings/      replay contracts, finding states, chains and retest helper
 packages/scope-engine/  conservative deterministic authorization
