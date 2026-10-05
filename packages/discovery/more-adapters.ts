@@ -61,7 +61,13 @@ export class GitleaksAdapter {
     const bin = this.env[this.binEnv];
     if (!bin || !isAbsolute(bin) || !isAbsolute(repoPath)) return [];
     let stdout = '';
-    try { ({ stdout } = await this.exec(bin, this.args(repoPath))); } catch { return []; }
+    try { ({ stdout } = await this.exec(bin, this.args(repoPath))); }
+    catch (error) {
+      // Gitleaks exits non-zero when it finds a leak and still writes the report to stdout.
+      const leaked = error && typeof error === 'object' && 'stdout' in error ? (error as { stdout?: unknown }).stdout : '';
+      if (typeof leaked !== 'string' || !leaked.trim()) return [];
+      stdout = leaked;
+    }
     try {
       const rows = JSON.parse(stdout) as Array<{ RuleID?: string; File?: string }>;
       // Never emit the secret value itself — only the rule and file, redacted by construction.

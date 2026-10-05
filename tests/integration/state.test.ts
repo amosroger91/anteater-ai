@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { connect,migrate } from '../../packages/research-state/db.js';
 import { saveProgram,exportWorkspace } from '../../packages/research-state/workspace.js';
-import { Jobs,acquireRate } from '../../packages/research-state/jobs.js';
+import { Jobs,acquireRate,submitFinding } from '../../packages/research-state/jobs.js';
 import { ToolGateway } from '../../packages/mcp/index.js';
 import { loadConfig } from '../../packages/shared/config.js';
 import { fixture } from '../../fixtures/program.js';
@@ -126,6 +126,25 @@ test('PostgreSQL leases, gateway, rate limits, recovery and Markdown',async t=>{
       assert.equal((await pool.query("SELECT count(*)::int AS n FROM research_jobs WHERE asset_id='fixture-api' AND status IN ('queued','running')")).rows[0].n, 0);
       await jobs.enqueue(program.id, 'fixture-api', 'inspect_http_target');
       assert.ok(await jobs.claim());
+    });
+    await t.test('database actor guards submission and a database kill stops new claims', async () => {
+      await assert.rejects(pool.query(`INSERT INTO findings(id,program_id,status,body,verified_by) VALUES($1,'fixture-company','VERIFIED','{}','owner-boundary-v1')`, [randomUUID()]), /verifier_required/);
+      const findingId = randomUUID();
+      await pool.query(`INSERT INTO findings(id,program_id,status,body) VALUES($1,'fixture-company','HUMAN_REVIEW','{}')`, [findingId]);
+      await assert.rejects(pool.query(`UPDATE findings SET status='SUBMITTED', human_reviewer='Ada Lovelace' WHERE id=$1`, [findingId]), /human_required/);
+      await submitFinding(pool, findingId, 'Ada Lovelace');
+      assert.equal((await pool.query('SELECT status FROM findings WHERE id=$1', [findingId])).rows[0].status, 'SUBMITTED');
+      await pool.query('UPDATE runtime_control SET global_kill=true WHERE id=1');
+      assert.equal(await jobs.claim(), undefined);
+      await pool.query('UPDATE runtime_control SET global_kill=false WHERE id=1');
+      await pool.query("UPDATE research_jobs SET status='failed',lease_token=NULL,lease_until=NULL WHERE status='running'");
+      await jobs.enqueue(fixture.id, 'fixture-api', 'inspect_http_target', 'dead-letter');
+      const dead = await jobs.claim();
+      assert.ok(dead);
+      await jobs.fail(dead, 'out_of_scope');
+      assert.equal((await pool.query('SELECT status FROM research_jobs WHERE id=$1', [dead.id])).rows[0].status, 'failed');
+      assert.equal((await pool.query('SELECT count(*)::int AS n FROM dead_letter WHERE job_id=$1', [dead.id])).rows[0].n, 1);
+      assert.match((await pool.query('SELECT hash FROM audit_events WHERE hash IS NOT NULL ORDER BY created_at DESC LIMIT 1')).rows[0].hash, /^[0-9a-f]{64}$/);
     });
   } finally { await pool.end(); await admin.query(`DROP SCHEMA ${schema} CASCADE`); await admin.end(); await rm(root,{recursive:true,force:true}); }
 });

@@ -3,6 +3,7 @@ import { lookup } from 'node:dns/promises';
 import { createHash } from 'node:crypto';
 import type { ClientRequest, IncomingMessage, IncomingHttpHeaders, RequestOptions } from 'node:http';
 import { addressBlockReason, findingsFromResponse } from '../../scripts/posture-check.js';
+import { guardModelContext } from '../inert/index.js';
 
 export interface PassiveDeps {
   lookup(hostname: string): Promise<Array<{ address: string; family: number }>>;
@@ -20,6 +21,14 @@ const realDeps: PassiveDeps = {
   request: (options, callback) => https.request(options, callback),
 };
 const HEADER_NAMES = new Set(['content-type', 'content-length', 'cache-control', 'last-modified', 'server', 'x-powered-by', 'strict-transport-security', 'content-security-policy', 'x-content-type-options', 'x-frame-options', 'referrer-policy', 'permissions-policy']);
+const RETRYABLE_TRANSPORT = new Set(['enotfound', 'eai_again', 'econnreset', 'econnrefused', 'etimedout', 'econnaborted', 'request_failed', 'response_aborted', 'enetunreach', 'ehostunreach', 'esockettimedout']);
+
+/** DNS, TLS, and socket failures are incomplete observations. The worker retries them instead of storing them as finished. */
+export function retryableTransportError(observation: unknown): string | undefined {
+  if (!observation || typeof observation !== 'object' || !('error' in observation)) return undefined;
+  const code = (observation as { error?: unknown }).error;
+  return typeof code === 'string' && RETRYABLE_TRANSPORT.has(code) ? code : undefined;
+}
 
 function cleanHeaders(headers: IncomingHttpHeaders): Record<string, string> {
   const result: Record<string, string> = {};
@@ -92,7 +101,7 @@ export async function executePassiveHttp(target: string, options: PassiveOptions
             .slice(0, 20).map(finding => ({ ...finding, detail: finding.detail.slice(0, 512) }));
           resolve({ ...base, ip: selected.address, status: response.statusCode ?? 0, headers, contentType,
             bodyBytes: bytes, bodySha256: createHash('sha256').update(captured).digest('hex'), hashScope: 'captured_bytes',
-            bodySnippet: readable ? captured.toString('utf8').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').slice(0, 2048) : null,
+            bodySnippet: readable ? guardModelContext(captured.toString('utf8').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').slice(0, 2048)).redacted : null,
             truncated, signals });
         };
         response.on('data', (chunk: Buffer) => {
@@ -104,7 +113,7 @@ export async function executePassiveHttp(target: string, options: PassiveOptions
         });
         response.on('end', () => finish(false));
         response.on('error', error => { if (!settled) { settled = true; reject(error); } });
-        response.on('aborted', () => { if (!settled) { settled = true; reject(new Error('response_aborted')); } });
+        response.on('aborted', () => { if (!settled) { settled = true; reject(Object.assign(new Error('response_aborted'), { code: 'RESPONSE_ABORTED' })); } });
       });
       request.on('error', error => { if (!settled) { settled = true; reject(error); } });
       request.end();

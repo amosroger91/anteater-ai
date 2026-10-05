@@ -3,7 +3,7 @@ import { lookup } from 'node:dns/promises';
 import { createHash } from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
 import { addressBlockReason } from '../../scripts/posture-check.js';
-import { underPath, type Application } from './profile.js';
+import { mutatingGet, underPath, type Application } from './profile.js';
 
 export type Purpose = 'discover' | 'login' | 'signup' | 'verify';
 export interface ExchangeRequest { url: URL; method: string; headers: Record<string, string>; body?: Buffer; signal: AbortSignal; maxBytes: number; beforeConnect: () => Promise<void> }
@@ -33,7 +33,7 @@ export function allowedRequest(origin: string, app: Application, value: string, 
   if (/[\\%\u0000-\u001f]/.test(path) || path.includes('//') || path.split('/').some(part => part === '.' || part === '..')) return false;
   if (app.excludedPaths.some(prefix => underPath(path, prefix))) return false;
   if (method === 'GET' || method === 'HEAD') {
-    if (/(?:^|\/)(?:logout|signout|delete|remove|unsubscribe|purchase|checkout|reset)(?:\/|$)/i.test(path)) return false;
+    if (mutatingGet(path)) return false;
     return app.readPathPrefixes.some(prefix => underPath(path, prefix));
   }
   if (method === 'POST' && purpose === 'login') return app.auth.loginWritePaths.includes(path);

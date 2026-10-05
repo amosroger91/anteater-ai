@@ -4,10 +4,23 @@ import { ActionSchema, authorize, PolicySchema, targetForAction } from '../scope
 import { acquireRate, type Job } from '../research-state/jobs.js';
 import { log } from '../shared/log.js';
 import { executePassiveHttp } from '../web-executor/index.js';
+import { ProgramBudget } from '../budget/index.js';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 export class ToolGateway {
+  private budgets = new Map<string, ProgramBudget>();
   constructor(private pool: pg.Pool, private config: () => Config) {}
+  private applicationBudget(programId: string, requestsPerSecond: number): ProgramBudget {
+    const existing = this.budgets.get(programId);
+    if (existing) return existing;
+    const rate = Math.max(requestsPerSecond, 0.001);
+    const budget = new ProgramBudget({
+      globalRatePerSec: rate, perHostRatePerSec: rate, concurrency: Math.max(1, this.config().MAX_CONCURRENT_JOBS),
+      bodyCapBytes: this.config().MAX_RESPONSE_BYTES, timeoutMs: 15000,
+    });
+    this.budgets.set(programId, budget);
+    return budget;
+  }
   async invoke(job: Job, tool: string, assetId: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
     const config = this.config();
     if (config.GLOBAL_KILL_SWITCH) throw new Error('kill_switch');
@@ -46,14 +59,22 @@ export class ToolGateway {
     };
     if (application) {
       const { researchApplication } = await import('../application-research/index.js');
+      const host = new URL(target).hostname;
       return researchApplication(new URL(target).origin, policy.application!, config, async requestSignal => {
         while (true) {
           requestSignal.throwIfAborted();
+          const budget = this.applicationBudget(job.program_id, policy.requestsPerSecond);
+          if (!budget.allow(host).ok) {
+            await sleep(100, undefined, { signal: requestSignal });
+            continue;
+          }
+          let limited = false;
           try { await reserve(); return; }
           catch (error) {
             if (!(error instanceof Error) || error.message !== 'rate_limited') throw error;
-            await sleep(100, undefined, { signal: requestSignal });
-          }
+            limited = true;
+          } finally { budget.done(); }
+          if (limited) await sleep(100, undefined, { signal: requestSignal });
         }
       }, signal);
     }

@@ -6,6 +6,7 @@ import { RequestGate, type Exchange } from './transport.js';
 import { ApplicationSchema, type Application } from './profile.js';
 import { imapVerifier, type VerifyMailbox } from './mailbox.js';
 import { verifyOwnership } from './verification.js';
+import { guardModelContext } from '../inert/index.js';
 
 export interface ResearchDeps { browser?: Browser; exchange?: Exchange; mailbox?: VerifyMailbox; env?: NodeJS.ProcessEnv }
 export interface SessionCoverage { id: string; status: string; reason?: string; identityValidated: boolean }
@@ -91,15 +92,17 @@ export async function researchApplication(origin: string, rawApp: Application, c
       } catch { coverage.push({ id: account.id, status: 'unavailable', reason: 'authentication_failed', identityValidated: false }); }
     }
     findings = await verifyOwnership(app, authenticated, gaps);
+    if (sessions.some(session => session.fatal === 'kill_switch')) throw new Error('kill_switch');
   } catch (error) {
-    if (parentSignal?.aborted) throw error;
+    if (parentSignal?.aborted || (error instanceof Error && error.message === 'kill_switch')) throw error;
     gaps.push(deadline.aborted ? 'assessment_deadline' : 'assessment_interrupted');
   } finally {
     signal.removeEventListener('abort', close);
     await Promise.allSettled(sessions.map(session => session.close()));
     if (!deps.browser) await browser.close();
   }
-  const inventory = sessions.flatMap(session => session.inventory.map(page => ({ session: session.id, url: page.url, title: page.title, links: page.links, forms: page.forms })));
+  const redact = (value: string) => guardModelContext(value).redacted;
+  const inventory = sessions.flatMap(session => session.inventory.map(page => ({ session: session.id, url: redact(page.url), title: redact(page.title), links: page.links.map(redact), forms: page.forms.map(form => ({ ...form, action: redact(form.action) })) })));
   const errors = [...new Set(sessions.flatMap(session => session.errors))];
   const report = { kind: 'OBSERVATION', executor: 'application-browser', target: origin,
     coverage: { sessions: coverage, pages: inventory.length, requests: gate.count, blocked: gate.blocked, gaps: [...new Set(gaps)], errors,

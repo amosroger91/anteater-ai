@@ -7,6 +7,12 @@ import { replay, type Responder } from './index.js';
 export interface RetestResult { fixed: boolean; reason: string }
 
 export async function retest(rawContract: unknown, responder: Responder): Promise<RetestResult> {
-  const outcome = await replay(rawContract, responder);
-  return outcome.reproduced ? { fixed: false, reason: 'still_reproduces' } : { fixed: true, reason: outcome.reason };
+  let outcome: Awaited<ReturnType<typeof replay>>;
+  try { outcome = await replay(rawContract, responder); }
+  catch { return { fixed: false, reason: 'step_unavailable' }; }
+  if (outcome.reproduced) return { fixed: false, reason: 'still_reproduces' };
+  // An outage or a failed control does not prove the finding was fixed.
+  if (outcome.reason.startsWith('step_unavailable')) return { fixed: false, reason: 'step_unavailable' };
+  if (outcome.reason.startsWith('counter_test_failed')) return { fixed: false, reason: 'counter_test_failed' };
+  return { fixed: true, reason: outcome.reason };
 }

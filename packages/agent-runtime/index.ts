@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { AnalysisSchema, ANALYSIS_SCHEMA_VERSION, type Analysis, type LLMProvider, type LLMResponse } from '../llm/index.js';
+import { guardModelContext } from '../inert/index.js';
 
 // Models propose explanations only. No provider can mutate scope, invoke tools, or submit reports here.
 export const ANALYSIS_SYSTEM_PROMPT = [
@@ -82,7 +83,7 @@ function metadata(response: LLMResponse, input: string) {
 }
 
 export async function analyzeObservation(provider: LLMProvider, observation: unknown): Promise<AnalysisRun> {
-  const input = boundedObservation(observation);
+  const input = guardModelContext(boundedObservation(observation)).redacted;
   let response = await provider.generate({ system: ANALYSIS_SYSTEM_PROMPT, input });
   try {
     return { analysis: parseResponse(response, input), rawText: response.text, ...metadata(response, input), status: 'accepted' };

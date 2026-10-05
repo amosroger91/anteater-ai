@@ -71,7 +71,7 @@ export const ContractSchema = z.object({
 }).strict();
 export type Contract = z.infer<typeof ContractSchema>;
 
-export interface StepResponse { status: number; body: string }
+export interface StepResponse { status: number; body: string; unavailable?: boolean }
 export type Responder = (stepId: string, iteration: number) => Promise<StepResponse>;
 
 function stepMatches(step: ReproStep, r: StepResponse): boolean {
@@ -88,11 +88,17 @@ export async function replay(rawContract: unknown, responder: Responder): Promis
   const evidence: VerifyOutcome['evidence'] = [];
   for (let i = 0; i < contract.repeatCount; i++) {
     for (const step of contract.steps) {
-      const r = await responder(step.id, i);
+      let r: StepResponse;
+      try { r = await responder(step.id, i); }
+      catch { return { reproduced: false, reason: `step_unavailable:${step.id}@${i}`, evidence }; }
+      if (r.unavailable) return { reproduced: false, reason: `step_unavailable:${step.id}@${i}`, evidence };
       evidence.push({ step: step.id, iteration: i, status: r.status });
       if (!stepMatches(step, r)) return { reproduced: false, reason: `step_failed:${step.id}@${i}`, evidence };
     }
-    const counter = await responder(contract.counterTest.id, i);
+    let counter: StepResponse;
+    try { counter = await responder(contract.counterTest.id, i); }
+    catch { return { reproduced: false, reason: `step_unavailable:${contract.counterTest.id}@${i}`, evidence }; }
+    if (counter.unavailable) return { reproduced: false, reason: `step_unavailable:${contract.counterTest.id}@${i}`, evidence };
     evidence.push({ step: contract.counterTest.id, iteration: i, status: counter.status });
     // The control must HOLD; if it does not, the positive result is not isolable (e.g. everything leaks).
     if (!stepMatches(contract.counterTest, counter)) return { reproduced: false, reason: `counter_test_failed@${i}`, evidence };

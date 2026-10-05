@@ -34,7 +34,7 @@ The earlier fixture-only descriptions above describe the earlier milestone. The 
 
 ## Current working-tree update — 2026-10-02
 
-- After the marker-based cleanup change, `npm run check` passed the TypeScript build and 127 unit tests.
-- Before that change, 3 Chromium browser tests passed against the injected synthetic application transport; 14 PostgreSQL integration tests, fixture replay, and the 29-pin dependency check also passed.
-- The browser suite was not rerun after the cleanup change at the operator's direction. A regression test for a successful create response with a missing resource ID was added; it remains unverified.
-- No live target, real login, or external mailbox was tested. No claim about production egress isolation or live cleanup is supported by these fixtures.
+- After the marker-based cleanup change, `npm run check` passed the TypeScript build and 127 unit tests. The browser suite was not part of that run.
+- The later production-gate edit passed `tsc --noEmit`. `tsx --test tests/*.test.ts` passed 129 tests and failed `tests/dependencies.test.ts` because git rejected the UNC checkout as dubious ownership. The same file passed 6 tests when that process set `safe.directory` and did not change git config.
+- `tsx --test tests/browser/*.test.ts` passed 4 Chromium tests against the injected lab, including cleanup when create returns no resource id. `npm run verify:local` passed 15 PostgreSQL tests on a temporary loopback server, including the finding-actor guard, database kill switch, and dead-letter row, then stopped that server. Fixture replay still stored one completed job and one observation.
+- No live target, real login, external mailbox, or live Ollama process was tested. No claim about production egress isolation is supported by these fixtures.

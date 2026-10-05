@@ -8,7 +8,7 @@ The current working tree includes a domain-list worker, a reviewed per-campaign 
 
 This is a working prototype, not a production service. The automated tests use Chromium with an injected synthetic transport and a fake application/mailbox. They do not validate DNS, TLS, browser egress, a live login, a real mailbox, or cleanup behavior against an independently controlled staging application. The worker scans only submitted roots: discovery adapters and downstream checks are not yet joined into an unattended discovery-to-report campaign. Most additional detectors and infrastructure analyzers are libraries with fixture tests, not live worker stages.
 
-The latest post-change check passes the TypeScript build and 127 unit tests. Before the marker-cleanup change, 3 browser tests and 14 PostgreSQL integration tests passed, and all 29 dependency pins verified. The browser suite was not rerun after the cleanup change, so its new malformed-create-response case is unverified. See [VALIDATION.md](VALIDATION.md) for the exact test boundaries and [READINESS.md](READINESS.md) for production gates.
+The production-gate edit typechecks. Its default unit run passed 129 tests; the dependency-pin file needs a process-local `safe.directory` on this UNC checkout. Four browser tests passed, including malformed-create cleanup, and `npm run verify:local` passed 15 PostgreSQL tests plus fixture replay. See [VALIDATION.md](VALIDATION.md) for the exact test boundaries and [READINESS.md](READINESS.md) for production gates.
 
 ## Capability status
 

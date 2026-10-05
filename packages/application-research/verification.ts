@@ -9,6 +9,11 @@ export interface VerifiedFinding {
   rule: string; owner: string; other: string; evidence: Array<{ step: string; method: string; url: string; status: number; sha256: string }>;
 }
 const digest = (body: Buffer) => createHash('sha256').update(body).digest('hex');
+// A 404 only means "already gone" when the create itself did not succeed.
+export function cleanupAccepted(createdOk: boolean, status: number): boolean {
+  if (status === 200 || status === 202 || status === 204) return true;
+  return !createdOk && status === 404;
+}
 export async function verifyOwnership(app: Application, sessions: BrowserSession[], gaps: string[]): Promise<VerifiedFinding[]> {
   const findings: VerifiedFinding[] = [];
   if (!app.privateResources.length) return findings;
@@ -20,6 +25,7 @@ export async function verifyOwnership(app: Application, sessions: BrowserSession
     const evidence: VerifiedFinding['evidence'] = [];
     const cleanup = new URL(rule.cleanupPath.replaceAll('{marker}', encodeURIComponent(marker)), owner.gate.origin).href;
     let createAttempted = false;
+    let createdOk = false;
     const record = (step: string, method: string, url: string, response: ExchangeResponse) => {
       evidence.push({ step, method, url: publicUrl(url), status: response.status, sha256: digest(response.body) });
       try { return !response.truncated && response.status >= 200 && response.status < 300 && jsonPointer(JSON.parse(response.body.toString()), rule.markerPointer) === marker; } catch { return false; }
@@ -33,6 +39,7 @@ export async function verifyOwnership(app: Application, sessions: BrowserSession
       createAttempted = true;
       const created = await owner.request(createUrl, 'POST', { ...rule.body, [rule.markerField]: marker });
       if (created.status < 200 || created.status >= 300 || created.truncated) { gaps.push('test_resource_creation_failed'); continue; }
+      createdOk = true;
       let id: unknown; try { id = jsonPointer(JSON.parse(created.body.toString()), rule.idPointer); } catch { gaps.push('unsupported_resource_id'); continue; }
       if ((typeof id !== 'string' && typeof id !== 'number') || !/^[a-zA-Z0-9_-]{1,128}$/.test(String(id))) { gaps.push('unsupported_resource_id'); continue; }
       const url = new URL(rule.readPath.replaceAll('{id}', String(id)), owner.gate.origin).href;
@@ -49,11 +56,21 @@ export async function verifyOwnership(app: Application, sessions: BrowserSession
       const ownerAgain = await owner.request(url);
       if (!record('repeat_owner', 'GET', url, ownerAgain)) { gaps.push('unstable_owner_baseline'); continue; }
       findings.push({ code: 'cross_account_resource_read', status: 'HUMAN_REVIEW', verifier: 'owner-boundary-v1', severity: 'high', rule: rule.name, owner: owner.id, other: other.id, evidence });
-    } catch { gaps.push('verification_interrupted'); }
+    } catch (error) {
+      if (error instanceof Error && error.message === 'kill_switch') throw error;
+      gaps.push('verification_interrupted');
+    }
     finally {
       if (createAttempted) {
-        try { const response = await owner.request(cleanup, 'DELETE'); if (![200, 202, 204, 404].includes(response.status)) gaps.push('cleanup_failed'); }
-        catch { gaps.push('cleanup_failed'); }
+        try {
+          const response = await owner.request(cleanup, 'DELETE');
+          if (!cleanupAccepted(createdOk, response.status)) gaps.push('cleanup_failed');
+        }
+        catch (error) {
+          owner.gate.ownedDeletes.delete(cleanup);
+          if (error instanceof Error && error.message === 'kill_switch') throw error;
+          gaps.push('cleanup_failed');
+        }
       }
       owner.gate.ownedDeletes.delete(cleanup);
     }
