@@ -80,9 +80,11 @@ if (once) {
   process.exit(0);
 }
 
-console.log('auto: starting worker + monitor. Ctrl-C to stop. Run `npm run triage` any time to see the queue.');
+console.log('auto: starting worker + monitor + dashboard. Ctrl-C to stop.');
+console.log('auto: live progress at http://127.0.0.1:4318/  ·  ranked queue: `npm run triage`');
 startBackground('worker');
 startBackground('monitor');
+startBackground('dashboard');
 // Keep the orchestrator alive until a child dies or the operator stops it.
 await new Promise<void>(resolve => {
   for (const child of children) child.on('exit', () => { if (!stopping) { shutdown(); resolve(); } });

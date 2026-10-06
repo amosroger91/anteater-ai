@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anteater — live progress</title>
+<style>
+  :root { color-scheme: dark; --bg:#0d1117; --card:#161b22; --line:#30363d; --fg:#e6edf3; --mut:#8b949e; --ok:#3fb950; --warn:#d29922; --bad:#f85149; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.45 ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif; }
+  header { padding:18px 20px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:baseline; }
+  h1 { font-size:18px; margin:0; } .mut { color:var(--mut); font-size:13px; }
+  main { padding:20px; display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); max-width:1100px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .card h2 { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--mut); margin:0 0 10px; }
+  .big { font-size:34px; font-weight:600; }
+  .row { display:flex; justify-content:space-between; padding:4px 0; border-top:1px solid var(--line); }
+  .row:first-of-type { border-top:0; } .k { color:var(--mut); } .v { font-variant-numeric:tabular-nums; }
+  .pill { font-size:12px; padding:2px 8px; border-radius:999px; border:1px solid var(--line); }
+</style>
+</head>
+<body>
+<header><h1>Anteater — live progress</h1><span class="mut" id="stamp">connecting…</span></header>
+<main>
+  <section class="card"><h2>Programs</h2><div class="big" id="programs">–</div><div class="mut"><span id="assets">–</span> in-scope assets</div></section>
+  <section class="card"><h2>Jobs</h2><div id="jobs"></div></section>
+  <section class="card"><h2>Findings</h2><div id="findings"></div></section>
+  <section class="card"><h2>Observations</h2><div class="big" id="observations">–</div></section>
+  <section class="card"><h2>Submissions (ledger)</h2><div id="submissions"></div></section>
+</main>
+<script>
+  const rows = (el, obj) => {
+    const keys = Object.keys(obj).sort();
+    el.innerHTML = keys.length ? keys.map(k => `<div class="row"><span class="k">${k}</span><span class="v">${obj[k]}</span></div>`).join('') : '<div class="mut">none yet</div>';
+  };
+  async function tick() {
+    try {
+      const s = await fetch('/api/state', { cache: 'no-store' }).then(r => r.json());
+      document.getElementById('programs').textContent = s.programs;
+      document.getElementById('assets').textContent = s.assets;
+      document.getElementById('observations').textContent = s.observations;
+      rows(document.getElementById('jobs'), s.jobs);
+      rows(document.getElementById('findings'), s.findings);
+      rows(document.getElementById('submissions'), s.submissions);
+      document.getElementById('stamp').textContent = 'updated ' + new Date(s.generatedAt).toLocaleTimeString();
+    } catch { document.getElementById('stamp').textContent = 'waiting for the database…'; }
+  }
+  tick(); setInterval(tick, 3000);
+</script>
+</body>
+</html>
