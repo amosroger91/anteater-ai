@@ -132,6 +132,8 @@ export function applyProfile(env: NodeJS.ProcessEnv, profile: SetupProfile): Nod
   set('MAILBOX_USERNAME', profile.mailboxUsername);
   set('MAILBOX_PASSWORD', profile.mailboxPassword);
   set('HACKERONE_USERNAME', profile.hackeroneUsername);
+  // Alias: preflight and the handle-driven intake read HACKERONE_API_USERNAME; keep both populated.
+  set('HACKERONE_API_USERNAME', profile.hackeroneUsername);
   set('HACKERONE_API_TOKEN', profile.hackeroneToken);
   set('ANTEATER_APPROVER', profile.approver);
   return next;
