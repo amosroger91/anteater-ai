@@ -6,9 +6,10 @@ import { RequestGate, type Exchange } from './transport.js';
 import { ApplicationSchema, type Application } from './profile.js';
 import { imapVerifier, type VerifyMailbox } from './mailbox.js';
 import { verifyOwnership } from './verification.js';
+import type { CleanupJournal } from './cleanup.js';
 import { guardModelContext } from '../inert/index.js';
 
-export interface ResearchDeps { browser?: Browser; exchange?: Exchange; mailbox?: VerifyMailbox; env?: NodeJS.ProcessEnv }
+export interface ResearchDeps { browser?: Browser; exchange?: Exchange; mailbox?: VerifyMailbox; env?: NodeJS.ProcessEnv; cleanupJournal?: CleanupJournal }
 export interface SessionCoverage { id: string; status: string; reason?: string; identityValidated: boolean }
 export async function researchApplication(origin: string, rawApp: Application, config: Config, beforeRequest: (signal: AbortSignal) => Promise<void>, parentSignal?: AbortSignal, deps: ResearchDeps = {}) {
   const app = ApplicationSchema.parse(rawApp);
@@ -91,7 +92,7 @@ export async function researchApplication(origin: string, rawApp: Application, c
         }
       } catch { coverage.push({ id: account.id, status: 'unavailable', reason: 'authentication_failed', identityValidated: false }); }
     }
-    findings = await verifyOwnership(app, authenticated, gaps);
+    findings = await verifyOwnership(app, authenticated, gaps, deps.cleanupJournal);
     if (sessions.some(session => session.fatal === 'kill_switch')) throw new Error('kill_switch');
   } catch (error) {
     if (parentSignal?.aborted || (error instanceof Error && error.message === 'kill_switch')) throw error;

@@ -8,7 +8,7 @@ export interface AggressiveInput {
   allowDestructive: boolean;
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
-  beforeExecution: () => Promise<void>;
+  beforeExecution?: () => Promise<void>;
   exec: (bin: string, args: string[], signal?: AbortSignal) => Promise<{ stdout: string }>;
 }
 
@@ -61,7 +61,7 @@ export async function runAggressive(input: AggressiveInput): Promise<AggressiveR
   const decision = aggressivePreflight(input);
   if (!decision.ok) return { refused: decision.reason, executed: false, destructive: false, findings: [], audit: [] };
   input.signal?.throwIfAborted();
-  await input.beforeExecution();
+  await input.beforeExecution?.();
   const host = input.host.trim().toLowerCase();
   const invocation = resolveInvocation(NUCLEI, {
     url: `https://${host}`,
@@ -71,7 +71,7 @@ export async function runAggressive(input: AggressiveInput): Promise<AggressiveR
   input.signal?.throwIfAborted();
   const result = await input.exec(invocation.bin, invocation.args, input.signal);
   input.signal?.throwIfAborted();
-  await input.beforeExecution();
+  await input.beforeExecution?.();
   const findings = parseNucleiJsonl(result.stdout);
   const audit = decision.destructive ? [{ event: 'AGGRESSIVE_DESTRUCTIVE' as const, host, recovery: 'qm rollback' as const }] : [];
   return { refused: null, executed: true, destructive: decision.destructive, findings, audit };

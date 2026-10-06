@@ -76,6 +76,9 @@ function boundSession(id: string, cookie: string, gate: RequestGate): OwnershipS
       if (payload) headers['content-type'] = 'application/json';
       return gate.send(id, session.purpose, url, method, headers, payload);
     },
+    cleanup(url) {
+      return gate.send(id, 'cleanup', url, 'DELETE', { cookie });
+    },
   };
   return session;
 }
