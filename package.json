@@ -26,6 +26,7 @@
     "coverage:report": "tsx scripts/coverage.ts",
     "gate": "tsx scripts/gate.ts",
     "eval:model": "tsx scripts/eval-model.ts",
+    "intake:h1": "tsx scripts/intake-hackerone.ts",
     "campaign": "tsx scripts/campaign.ts",
     "monitor": "tsx scripts/monitor.ts",
     "aggressive": "tsx scripts/aggressive.ts",
