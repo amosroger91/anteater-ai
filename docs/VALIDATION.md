@@ -6,6 +6,8 @@ TypeScript `tsc --noEmit` is the allowed static check for this change. No unit/i
 
 The October 5 execution/setup/model work was preserved from the intervening commits. The remaining asset-planner wiring and application cleanup-recovery hooks were completed here alongside the scanner importer. Runtime recovery and real API behavior still need independent validation when tests are authorized.
 
+The subsequent `Retry-After` change also passed TypeScript static checking. Added, unrun regression sources cover delay parsing, one retry for directory/program/scope/exclusion requests, cancellation during backoff, and terminal HTTP errors. No tests or live API calls were run to validate retry behavior.
+
 ## Initial milestone record
 
 - `npm run check`: TypeScript build and 59 unit tests passed.

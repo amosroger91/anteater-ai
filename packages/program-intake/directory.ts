@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { readIntakeText, type FetchLike } from './hackerone.js';
+import { fetchIntakeResponse, readIntakeText, type FetchLike } from './hackerone.js';
 
 export interface DirectoryCompany { handle: string; name: string; submissionState: string; url: string }
 const entry = z.object({ type: z.literal('program'), attributes: z.object({
@@ -25,9 +25,7 @@ export async function listHackerOneCompanies(authorization: string, signal: Abor
       [...url.searchParams.keys()].some(key => !['page[number]', 'page[size]'].includes(key))) throw new Error('program_host_refused');
     if (seen.has(url.href)) throw new Error('program_directory_incomplete');
     seen.add(url.href);
-    const response = await fetchLike(url.href, { method: 'GET', redirect: 'error',
-      signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]), headers: { accept: 'application/json', authorization } });
-    if (!response.ok) throw new Error(`program_http_${response.status}`);
+    const response = await fetchIntakeResponse(fetchLike, url.href, { authorization, signal, timeoutMs: 15000 });
     const text = await readIntakeText(response, 4_194_304);
     signal.throwIfAborted();
     bytes += Buffer.byteLength(text);

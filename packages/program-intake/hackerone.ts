@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { setTimeout as delay } from 'node:timers/promises';
 
 // HackerOne hacker API (BOUNTY_EARNINGS_PLAN.md Phase 1.1).
 // Documented host: https://api.hackerone.com — GET /v1/hackers/programs/{handle},
@@ -12,7 +13,39 @@ const MAX_TOTAL_BYTES = 4_194_304;
 const MAX_PAGES = 20;
 const HANDLE = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/;
 
-export type FetchLike = (url: string, init?: { method?: 'GET'; signal?: AbortSignal; redirect?: 'error'; headers?: Record<string, string> }) => Promise<{ ok: boolean; status: number; text(): Promise<string>; body?: ReadableStream<Uint8Array> | null }>;
+export type FetchLike = (url: string, init?: { method?: 'GET'; signal?: AbortSignal; redirect?: 'error'; headers?: Record<string, string> }) => Promise<{
+  ok: boolean; status: number; text(): Promise<string>;
+  headers?: { get(name: string): string | null };
+  body?: ReadableStream<Uint8Array> | null;
+}>;
+
+export function retryAfterDelayMs(value: string | null | undefined, now = Date.now()): number {
+  const header = value?.trim() ?? '';
+  if (/^\d+$/.test(header)) return Math.min(60_000, Number(header) * 1000);
+  // HTTP dates start with a weekday; do not parse malformed numeric delays as dates.
+  const date = /^[a-z]{3,9}[, ]/i.test(header) ? Date.parse(header) : NaN;
+  return Number.isFinite(date) ? Math.min(60_000, Math.max(0, date - now)) : 2000;
+}
+
+// Callers pin the endpoint before reaching here. Retry the same GET only once.
+export async function fetchIntakeResponse(fetchLike: FetchLike, url: string,
+  options: { authorization?: string; timeoutMs: number; signal?: AbortSignal }): Promise<Awaited<ReturnType<FetchLike>>> {
+  const headers: Record<string, string> = { accept: 'application/json', 'user-agent': 'anteater-program-intake' };
+  if (options.authorization) headers.authorization = options.authorization;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    options.signal?.throwIfAborted();
+    const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs)]) : AbortSignal.timeout(options.timeoutMs);
+    const response = await fetchLike(url, { method: 'GET', signal, redirect: 'error', headers });
+    if (response.ok) return response;
+    // Release the connection without reading or logging an error response body.
+    await response.body?.cancel().catch(() => {});
+    options.signal?.throwIfAborted();
+    if (response.status !== 429 || attempt === 1) throw new Error(`program_http_${response.status}`);
+    // The request deadline must not cancel the backoff. Attempt two gets a fresh deadline.
+    await delay(retryAfterDelayMs(response.headers?.get('retry-after')), undefined, { signal: options.signal });
+  }
+  throw new Error('program_http_429');
+}
 
 export async function readIntakeText(response: Awaited<ReturnType<FetchLike>>, limit: number): Promise<string> {
   if (!response.body) {
@@ -172,11 +205,7 @@ export function rateRulesFromPolicy(policyText: string): { requestsPerSecond: nu
 
 async function getJson(fetchLike: FetchLike, url: string, handle: string, kind: 'program' | 'scopes' | 'exclusions', options: { authorization?: string; timeoutMs: number; signal?: AbortSignal }, total: { bytes: number }): Promise<unknown> {
   const pinned = pinnedUrl(url, handle, kind);
-  const headers: Record<string, string> = { accept: 'application/json', 'user-agent': 'anteater-program-intake' };
-  if (options.authorization) headers.authorization = options.authorization;
-  const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs)]) : AbortSignal.timeout(options.timeoutMs);
-  const response = await fetchLike(pinned, { method: 'GET', signal, redirect: 'error', headers });
-  if (!response.ok) throw new Error(`program_http_${response.status}`);
+  const response = await fetchIntakeResponse(fetchLike, pinned, options);
   const text = await readIntakeText(response, MAX_RESPONSE_BYTES);
   const size = Buffer.byteLength(text);
   if (size > MAX_RESPONSE_BYTES) throw new Error('program_response_too_large');

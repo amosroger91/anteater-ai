@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PERMITTED_POLICY } from '../fixtures/automation-policy.js';
-import { fetchProgram, hackerOneProgramUrls, MAX_RESPONSE_BYTES, rateRulesFromPolicy, type FetchLike } from '../packages/program-intake/hackerone.js';
+import { fetchProgram, hackerOneProgramUrls, MAX_RESPONSE_BYTES, rateRulesFromPolicy, retryAfterDelayMs, type FetchLike } from '../packages/program-intake/hackerone.js';
 
 const urls = hackerOneProgramUrls('acme');
 
@@ -135,4 +135,70 @@ test('the request deadline aborts a fetch that never returns', async () => {
   } finally {
     clearInterval(keepAlive);
   }
+});
+
+test('Retry-After accepts seconds and HTTP dates with a bounded fallback', () => {
+  const now = Date.parse('Tue, 06 Oct 2026 12:00:00 GMT');
+  for (const [header, expected] of [
+    [undefined, 2000], [null, 2000], ['', 2000], ['garbage', 2000], ['-1', 2000], ['1.5', 2000],
+    ['0', 0], [' 3 ', 3000], ['600', 60000], ['9'.repeat(400), 60000],
+    ['Tue, 06 Oct 2026 12:00:30 GMT', 30000], ['Tue, 06 Oct 2026 12:02:00 GMT', 60000],
+    ['Tue, 06 Oct 2026 11:59:00 GMT', 0],
+  ] as const) assert.equal(retryAfterDelayMs(header, now), expected, String(header));
+});
+
+test('a throttled program, scope, or exclusion request retries the same pinned GET once', async () => {
+  for (const throttledUrl of Object.values(urls)) {
+    const client = router(pages());
+    const attempts: Array<{ url: string; init?: Parameters<FetchLike>[1] }> = [];
+    let cancelled = 0;
+    let throttled = false;
+    const fetchLike: FetchLike = async (url, init) => {
+      attempts.push({ url, init });
+      if (url === throttledUrl && !throttled) {
+        throttled = true;
+        return { ok: false, status: 429, headers: { get: () => '0' },
+          text: async () => { throw new Error('error_body_must_not_be_read'); },
+          body: new ReadableStream<Uint8Array>({ cancel() { cancelled++; } }) };
+      }
+      return client.fetchLike(url, init);
+    };
+    const program = await fetchProgram('acme', fetchLike, { authorization: 'Basic dGVzdDp0ZXN0' });
+    assert.equal(program.handle, 'acme');
+    assert.equal(attempts.length, 4);
+    const retried = attempts.filter(call => call.url === throttledUrl);
+    assert.equal(retried.length, 2);
+    assert.notEqual(retried[0]?.init?.signal, retried[1]?.init?.signal);
+    assert.ok(attempts.every(call => call.init?.redirect === 'error' && call.init.method === 'GET' &&
+      call.init.headers?.authorization === 'Basic dGVzdDp0ZXN0'));
+    assert.equal(cancelled, 1);
+  }
+});
+
+test('a second throttle stops the request and other HTTP failures are not retried', async () => {
+  for (const status of [429, 401, 503]) {
+    let calls = 0;
+    const fetchLike: FetchLike = async () => {
+      calls++;
+      return { ok: false, status, headers: { get: () => '0' },
+        text: async () => { throw new Error('error_body_must_not_be_read'); } };
+    };
+    await assert.rejects(fetchProgram('acme', fetchLike), new RegExp(`program_http_${status}`));
+    assert.equal(calls, status === 429 ? 2 : 1);
+  }
+});
+
+test('parent cancellation interrupts Retry-After without another request', { timeout: 1000 }, async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  let abort: NodeJS.Immediate | undefined;
+  const fetchLike: FetchLike = async () => {
+    calls++;
+    abort = setImmediate(() => controller.abort());
+    return { ok: false, status: 429, headers: { get: () => '60' }, text: async () => '' };
+  };
+  try {
+    await assert.rejects(fetchProgram('acme', fetchLike, { signal: controller.signal }), { name: 'AbortError' });
+    assert.equal(calls, 1);
+  } finally { if (abort) clearImmediate(abort); }
 });

@@ -72,7 +72,27 @@ test('directory follows all pinned pages and does not return partial results on 
     new URL(value).searchParams.has('page[number]') ? reply({ data: [listed('two')], links: {} }) :
       reply({ data: [listed('one')], links: { next: base + '?page%5Bnumber%5D=2&page%5Bsize%5D=100' } }));
   assert.deepEqual(rows.map(row => row.handle), ['one', 'two']);
+  let attempts = 0;
   await assert.rejects(listHackerOneCompanies('Basic dXNlcjp0b2tlbg==', new AbortController().signal, async value =>
-    new URL(value).searchParams.has('page[number]') ? { ok: false, status: 429, text: async () => '' } :
+    new URL(value).searchParams.has('page[number]') ? (++attempts, { ok: false, status: 429, headers: { get: () => '0' }, text: async () => '' }) :
       reply({ data: [listed('one')], links: { next: base + '?page%5Bnumber%5D=2' } })), /program_http_429/);
+  assert.equal(attempts, 2);
+});
+
+test('directory resumes a throttled page without losing previous companies', async () => {
+  const second = 'https://api.hackerone.com/v1/hackers/programs?page%5Bnumber%5D=2';
+  const calls: string[] = [];
+  let throttled = false;
+  const rows = await listHackerOneCompanies('Basic dXNlcjp0b2tlbg==', new AbortController().signal, async value => {
+    calls.push(value);
+    if (value !== second) return reply({ data: [listed('one')], links: { next: second } });
+    if (!throttled) {
+      throttled = true;
+      return { ok: false, status: 429, headers: { get: () => '0' }, text: async () => '' };
+    }
+    return reply({ data: [listed('two')] });
+  });
+  assert.deepEqual(rows.map(row => row.handle), ['one', 'two']);
+  assert.equal(calls.length, 3);
+  assert.deepEqual(calls.slice(1), [second, second]);
 });

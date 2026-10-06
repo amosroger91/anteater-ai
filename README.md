@@ -28,6 +28,8 @@ The wizard encrypts the values with Windows DPAPI for the current user and write
 
 On the scanner at `/run`, click **Fetch companies from HackerOne** to list programs available to your account. All companies start selected; search or uncheck any you want to exclude, then click **Review selected scope**. The confirmation view shows allowed assets, exclusions, paths, actions, rates, and program instructions. Confirming with your name saves the eligible programs and approval provenance to PostgreSQL for seven days. It starts no scan and leaves the kill switch unchanged. Closed, prohibited, ambiguous/manual-only, and unsupported-scope programs are shown as excluded. Existing scope is retained when a company is unchecked. See [company import](docs/COMPANY_IMPORT.md).
 
+Company imports retry a throttled API request once, honoring `Retry-After` up to 60 seconds (two seconds if missing or invalid). The wait remains cancellable; a second HTTP 429 stops the import.
+
 The screenshots use example text. The token is typed into a password field and is not shown again after save.
 
 ![Keys step, after the keys are generated](docs/images/setup-keys.png)

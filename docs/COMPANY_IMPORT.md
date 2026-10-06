@@ -18,6 +18,8 @@ Fetching and scope preparation show progress and can be cancelled. Saving report
 
 All API pagination stays on the exact HackerOne endpoint, refuses redirects, and is bounded by page, byte, and time limits. A failed directory page never returns an apparently complete partial company list. API tokens remain on the server and are not returned in selection or scope status. Only same-origin JSON requests from the local scanner can change an import.
 
+On HTTP 429, directory and policy/scope requests pause and retry the same request once. `Retry-After` accepts seconds or an HTTP date, capped at 60 seconds; missing or malformed values use two seconds. The wait can be cancelled, counts toward the import's overall deadline, and is followed by a fresh request timeout. A second 429 stops the import with its existing rate-limit error; other HTTP errors are not retried.
+
 ## Verification status
 
 The implementation and regression fixtures were reviewed statically on 2026-10-06. Tests, browser checks, HackerOne calls with real credentials, and target scans were not run for this change, following the user's instruction. Earlier fixture results do not validate this new UI/import path.
