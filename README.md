@@ -6,6 +6,8 @@ A web-development-focused, scope-first foundation for authorized web and API sec
 
 Anteater stores reviewed program policy, assets, bounded jobs, observations and evidence metadata in PostgreSQL, then exports a readable Markdown workspace. The default runs a synthetic fixture. An explicitly enabled passive HTTPS adapter can collect from reviewed program manifests, propose fixed-path follow-ups, and record posture signals for operator review.
 
+A one-command `npm run auto` runner chains the readiness gate, scope intake, the bounded worker, the discovery monitor, and a live progress dashboard over the authorized, automation-permitted programs you loaded — through the setup UI or a handles file. It contacts nothing until explicitly armed, never auto-discovers programs, and never submits a finding; that stays your decision.
+
 ## Architecture
 
 ```text
@@ -24,9 +26,11 @@ See [architecture](docs/ARCHITECTURE.md), [implemented improvements](docs/EXECUT
 
 Run `npm run setup`. Your browser opens a wizard at `http://127.0.0.1:4317/` that stays on this computer. Click through keys, the approver's name, an optional HackerOne username and token, owned-lab hostnames, and an optional mailbox. Saving opens the scanner on this computer. A saved hostname is contacted only when you click Scan. Saving does not call HackerOne, approve a program, or turn off the kill switch.
 
+`npm run setup` also starts (or reuses) the bundled local PostgreSQL — embedded, no Docker — on `127.0.0.1:55432` and applies migrations, so the companies you import are saved to the same database the engine reads later. Set `DATABASE_URL` to use an external database instead.
+
 The wizard encrypts the values with Windows DPAPI for the current user and writes them under `secrets/`, which git ignores. `worker`, `monitor`, `aggressive`, and `fleet` read that file when it exists. A value already set in the environment wins. `npm run verify:local` sets `ANTEATER_USE_SETUP=false`, so the fixture run ignores a setup file on the machine.
 
-On the scanner at `/run`, click **Fetch companies from HackerOne** to list programs available to your account. All companies start selected; search or uncheck any you want to exclude, then click **Review selected scope**. The confirmation view shows allowed assets, exclusions, paths, actions, rates, and program instructions. Confirming with your name saves the eligible programs and approval provenance to PostgreSQL for seven days. It starts no scan and leaves the kill switch unchanged. Closed, prohibited, ambiguous/manual-only, and unsupported-scope programs are shown as excluded. Existing scope is retained when a company is unchecked. See [company import](docs/COMPANY_IMPORT.md).
+On the scanner at `/run`, click **Fetch companies from HackerOne** to list programs available to your account. All companies start selected; search or uncheck any you want to exclude, then click **Review selected scope**. The confirmation view shows allowed assets, exclusions, paths, actions, rates, and program instructions. Confirming with your name saves the eligible programs and approval provenance to PostgreSQL for seven days, and queues one bounded passive job for each in-scope asset so the engine tests those programs on the next armed run. It starts no scan and leaves the kill switch unchanged. Closed, prohibited, ambiguous/manual-only, and unsupported-scope programs are shown as excluded. Existing scope is retained when a company is unchecked. See [company import](docs/COMPANY_IMPORT.md).
 
 Company imports retry a throttled API request once, honoring `Retry-After` up to 60 seconds (two seconds if missing or invalid). The wait remains cancellable; a second HTTP 429 stops the import.
 
@@ -67,6 +71,22 @@ After setup is saved, the browser opens `http://127.0.0.1:4317/run`. Each saved 
 ![Lab scan finished for a saved hostname](docs/images/scanner-lab.png)
 
 The fixture scan stays on the page as a practice run and does not start by itself. A HackerOne program is not fetched or scanned from this page.
+
+## Autonomous run (press go)
+
+Once programs are loaded — imported through the setup UI, or listed one handle per line in `programs/handles.txt` — `npm run auto` runs the whole chain over the authorized, automation-permitted programs you loaded. It starts (or reuses) the bundled local database, applies migrations, runs the readiness gate, pulls scope for any listed handles, then runs the worker, the discovery monitor, and a live progress dashboard until you stop it. Nothing is contacted without `--arm`.
+
+```powershell
+npm run auto                   # dry: readiness check only; reports what is missing and contacts nothing
+npm run auto -- --arm          # armed: kill switch off and passive HTTP on for this run
+npm run auto -- --arm --once   # one armed pass, then print the ranked queue and exit
+```
+
+`--arm` turns the engine on for that run only — kill switch off, passive HTTP on, and model-driven follow-up selection on. The scope gate, rate limits, and each program's automation class still apply to every request. It engages only programs you loaded that permit automation, never auto-discovers programs, and never submits — that stays your decision.
+
+Readiness (`npm run preflight`, read-only) passes when the live flags, database, migrations, and HackerOne credentials are ready and a roster exists from either source: programs imported through the setup UI, or a `programs/handles.txt` list. A malformed handle in the file is always an error. With no handles file, `auto` skips handle intake and runs the imported programs already queued in the database.
+
+Progress is obvious while it runs: the read-only live dashboard at `http://127.0.0.1:4318/` (programs, assets, jobs, observations, findings, submissions, and agent activity), and the ranked, de-duplicated, submit-ready queue via `npm run triage`. You submit the good ones yourself with `npm run finding:submit -- --id=<id> --reviewer=<name>`.
 
 ## Bounty review inbox
 
@@ -162,9 +182,19 @@ Historical setup validation passed `npm run build` and **174 unit tests**, inclu
 
 The 2026-10-06 company-import and final review fixes passed TypeScript static checking. No tests, browser checks, live platform calls, or scans were run for this change at the user's instruction. Earlier counts above do not validate these edits.
 
+The 2026-10-06 turnkey wiring — company import queues a passive job per in-scope asset, preflight accepts programs imported through the setup UI as a valid roster, and `setup`/`auto` share one bundled embedded database via a port probe — passed `npm run build`, **224 unit tests**, and `npm run verify:local` (the embedded-PostgreSQL integration suite and idempotent fixture replay). A new integration test drives the real database end to end: importing a company saves it, queues exactly one passive job, and clears preflight with no handles file. No live platform call or target scan was run; the kill switch stays default-on and `--arm` is still required to contact anything.
+
 ## Quick start
 
-Requires Node.js 22+ and Docker Compose with a running Linux engine.
+The turnkey path needs only Node.js 22+ — `npm run setup` and `npm run auto` start a bundled embedded PostgreSQL on `127.0.0.1:55432` automatically, so no Docker is required:
+
+```sh
+npm ci
+npm run setup          # configure, import programs, starts the local database
+npm run auto -- --arm  # press go over the authorized programs you loaded
+```
+
+The Docker Compose path below is an alternative for a managed PostgreSQL; it requires Docker Compose with a running Linux engine.
 
 ```sh
 npm ci
@@ -192,7 +222,7 @@ Without Docker, `npm run verify:local` starts temporary PostgreSQL, runs integra
 
 | Variable | Required | Default / purpose |
 | --- | --- | --- |
-| DATABASE_URL | Production | Local Compose database on port 55432 |
+| DATABASE_URL | No | Defaults to the bundled embedded PostgreSQL at `127.0.0.1:55432`, which `setup`/`auto` start automatically. Set it to use an external or Compose database |
 | GLOBAL_KILL_SWITCH | No | `true`; denies tool execution |
 | REQUIRE_SCOPE | No | Must remain `true` |
 | REQUIRE_PROGRAM_POLICY | No | Must remain `true` |
@@ -217,7 +247,13 @@ Without Docker, `npm run verify:local` starts temporary PostgreSQL, runs integra
 
 | Command | Purpose |
 | --- | --- |
-| `npm run setup` | Local wizard for keys, approver, HackerOne, lab hostnames, and an optional mailbox. Saving opens the scanner for those hostnames. Writes only to `secrets/` |
+| `npm run setup` | Local wizard for keys, approver, HackerOne, lab hostnames, and an optional mailbox. Starts the bundled local database and opens the scanner. Writes profile only to `secrets/` |
+| `npm run auto -- --arm` | Press go: start/reuse the local database, gate readiness, intake any listed handles, then run the worker, monitor, and dashboard over the authorized programs you loaded. Omit `--arm` for a dry readiness check that contacts nothing |
+| `npm run preflight` | Read-only readiness gate; contacts nothing |
+| `npm run intake:h1` | Pull scope for the handles in `programs/handles.txt` and queue their passive jobs |
+| `npm run dashboard` | Read-only live progress at `http://127.0.0.1:4318/` |
+| `npm run triage` | Show the ranked, de-duplicated, submit-ready finding queue |
+| `npm run finding:submit -- --id=<id> --reviewer=<name>` | Record a human submission for one finding |
 | `npm run check` | Compile TypeScript and run unit tests |
 | `npm run test:integration` | Test a running PostgreSQL in an isolated schema |
 | `npm run verify:local` | Temporary native PostgreSQL, integration tests, fixture replay |
