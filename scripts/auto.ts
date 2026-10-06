@@ -23,6 +23,7 @@ const env: NodeJS.ProcessEnv = { ...loadOperatorEnvironment() };
 if (arm) {
   env.GLOBAL_KILL_SWITCH = 'false';
   env.ENABLE_PASSIVE_HTTP = 'true';
+  env.ENABLE_AGENT = 'true';   // the model drives follow-up selection; the gateway still gates scope
   if (research) env.ENABLE_APPLICATION_RESEARCH = 'true';
 }
 

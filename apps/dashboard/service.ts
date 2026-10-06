@@ -10,6 +10,7 @@ export interface DashboardState {
   observations: number;
   findings: Record<string, number>;   // findings.status -> count
   submissions: Record<string, number>;// submissions.state -> count (ledger), if present
+  agent: Record<string, number>;      // agent_runs.role -> count (analysis + agent planning activity)
   generatedAt: string;
 }
 
@@ -35,6 +36,7 @@ export async function dashboardState(pool: Pick<pg.Pool, 'query'>): Promise<Dash
     observations: await scalar(pool, 'SELECT count(*)::int AS n FROM observations'),
     findings: await grouped(pool, 'SELECT status AS k, count(*)::int AS n FROM findings GROUP BY status'),
     submissions: await grouped(pool, 'SELECT state AS k, count(*)::int AS n FROM submissions GROUP BY state'),
+    agent: await grouped(pool, 'SELECT role AS k, count(*)::int AS n FROM agent_runs GROUP BY role'),
     generatedAt: new Date().toISOString(),
   };
 }

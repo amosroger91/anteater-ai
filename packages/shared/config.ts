@@ -9,6 +9,8 @@ const schema = z.object({
   ALLOW_ACTIVE_TESTING: bool('false'),
   ENABLE_PASSIVE_HTTP: bool('false'),
   ENABLE_APPLICATION_RESEARCH: bool('false'),
+  // Model-driven follow-up selection in the worker (the agentic loop). The gateway still gates scope.
+  ENABLE_AGENT: bool('false'),
   // Lab-only: relax the private-IP egress guard for an explicit allow-list of owned test hosts.
   // Must be wired so it NEVER affects a non-lab program (see BOUNTY_EARNINGS_PLAN.md Phase 0).
   ALLOW_PRIVATE_LAB_TARGETS: bool('false'),

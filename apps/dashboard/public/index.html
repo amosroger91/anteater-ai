@@ -27,6 +27,7 @@
   <section class="card"><h2>Findings</h2><div id="findings"></div></section>
   <section class="card"><h2>Observations</h2><div class="big" id="observations">–</div></section>
   <section class="card"><h2>Submissions (ledger)</h2><div id="submissions"></div></section>
+  <section class="card"><h2>Agent activity</h2><div id="agent"></div></section>
 </main>
 <script>
   const rows = (el, obj) => {
@@ -42,6 +43,7 @@
       rows(document.getElementById('jobs'), s.jobs);
       rows(document.getElementById('findings'), s.findings);
       rows(document.getElementById('submissions'), s.submissions);
+      rows(document.getElementById('agent'), s.agent);
       document.getElementById('stamp').textContent = 'updated ' + new Date(s.generatedAt).toLocaleTimeString();
     } catch { document.getElementById('stamp').textContent = 'waiting for the database…'; }
   }

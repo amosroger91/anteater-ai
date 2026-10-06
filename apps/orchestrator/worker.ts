@@ -8,6 +8,7 @@ import { ToolGateway } from '../../packages/mcp/index.js';
 import { FileProgramProvider, FixtureProvider } from '../../packages/bounty-providers/index.js';
 import { FixtureLLM, OllamaProvider, type LLMProvider } from '../../packages/llm/index.js';
 import { analyzeObservation, analysisPromptHash, boundedObservation } from '../../packages/agent-runtime/index.js';
+import { planFollowUps } from '../../packages/agent/index.js';
 import { loadCampaign } from '../../packages/application-research/intake.js';
 import { executeLeasedJob } from '../../packages/research-state/execution.js';
 
@@ -56,6 +57,15 @@ async function processJob(jobs: Jobs, gateway: ToolGateway, job: Job, provider: 
       return;
     }
     await persistAnalysis(jobs, job, result.observationId, result.observation, provider);
+    // Agentic follow-up: the model chooses the next actions from a fixed catalog; the gateway still
+    // enforces scope before any of them runs. Best-effort — never fails a completed job.
+    if (config.ENABLE_AGENT) {
+      try {
+        const actions = await planFollowUps(provider, result.observation);
+        for (const action of actions) await jobs.enqueue(job.program_id, job.asset_id, action);
+        if (actions.length) log('AGENT_PLAN', { program: job.program_id, job: job.id, result: actions.join('+') });
+      } catch { /* planning is advisory; the deterministic follow-ups already ran */ }
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
     const defer = shutdown.signal.aborted || message === 'rate_limited' || message === 'kill_switch' || message === 'lease_superseded_by_revocation';
