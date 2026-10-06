@@ -2,15 +2,16 @@ import { execFile } from 'node:child_process';
 import type { ProgramBudget } from '../packages/budget/index.js';
 import { CertTransparencyDiscovery } from '../packages/discovery/adapters.js';
 import { runMonitorCycle } from '../packages/discovery/monitor.js';
-import { PassiveDnsDiscovery, SubfinderDiscovery, type ExecLike } from '../packages/discovery/more-adapters.js';
+import { PinnedHostListDiscovery, SubfinderDiscovery, type ExecLike } from '../packages/discovery/more-adapters.js';
+import type { DiscoveryAdapter } from '../packages/discovery/index.js';
 import { connect } from '../packages/research-state/db.js';
 import { loadOperatorConfig as loadConfig } from '../packages/setup/operator.js';
 
 // Scheduled discovery (BOUNTY_EARNINGS_PLAN.md Phase 2.3). The process kill
-// switch refuses the run before any source is called. Certificate transparency
-// uses only https://crt.sh. Subfinder runs only when SUBFINDER_BIN is an
-// absolute path. Passive DNS has no documented unauthenticated host here, so
-// the default resolver returns no names.
+// switch refuses the run before any source is called. The loop repeats until
+// SIGINT, SIGTERM, or --once. Subfinder and passive DNS run only when their
+// *_BIN values are absolute paths. Certificate transparency uses CT_BIN when
+// that path is set, and otherwise only https://crt.sh.
 
 const initial = loadConfig();
 if (initial.GLOBAL_KILL_SWITCH) {
@@ -25,9 +26,15 @@ const execPinned: ExecLike = (bin, args) => new Promise((resolve, reject) => {
   });
 });
 
+function certificateSource(): DiscoveryAdapter {
+  const bin = process.env.CT_BIN?.trim();
+  if (!bin) return new CertTransparencyDiscovery();
+  return new PinnedHostListDiscovery('cert-transparency', execPinned, 'CT_BIN', process.env, 0.7);
+}
+
 const sources = {
-  certTransparency: new CertTransparencyDiscovery(),
-  passiveDns: new PassiveDnsDiscovery(async () => []),
+  certTransparency: certificateSource(),
+  passiveDns: new PinnedHostListDiscovery('passive-dns', execPinned, 'PASSIVE_DNS_BIN', process.env, 0.6),
   subfinder: new SubfinderDiscovery(execPinned),
 };
 
@@ -47,8 +54,10 @@ try {
       break;
     }
     const reports = await runMonitorCycle({ pool, sources, budgets });
-    const enqueued = reports.reduce((sum, report) => sum + report.enqueued.length, 0);
-    console.log(`monitor_cycle programs=${reports.length} enqueued=${enqueued}`);
+    if (!reports.length) console.log('monitor_cycle programs=0 new_exposure=-');
+    for (const report of reports) {
+      console.log(`monitor_cycle program=${report.programId} skipped=${report.skipped ?? '-'} new_exposure=${report.newExposure.join(',') || '-'} enqueued=${report.enqueued.join(',') || '-'}`);
+    }
     if (once || stopped) break;
     const started = Date.now();
     while (!stopped && Date.now() - started < waitMs) {

@@ -6,6 +6,7 @@ import { recordCampaignCoverage, recordReplay, retestStored, submitFinding } fro
 import { saveProgram } from '../../packages/research-state/workspace.js';
 import { loadConfig } from '../../packages/shared/config.js';
 import { decrypt } from '../../packages/evidence/index.js';
+import { recordKnownIssue } from '../../packages/ledger/index.js';
 import { renderReport } from '../../packages/report/index.js';
 import { remediationFor } from '../../packages/remediation/index.js';
 import type { Responder } from '../../packages/findings/index.js';
@@ -48,10 +49,11 @@ test('a finding moves to submitted with a clean report, and a duplicate is kept 
     assert.equal(decrypt(evidence.rows[0].body.sealed, key).includes('owned-marker'), false);
     const stored = (await pool.query('SELECT body FROM findings WHERE id=$1', [verified.id])).rows[0].body;
     const report = renderReport(
-      { id: verified.id, type: stored.findingType, location: stored.location, severity: stored.severity },
+      { id: verified.id, type: stored.findingType, location: stored.location, severity: stored.severity, status: verified.next },
       { steps: stored.replay.evidence },
       remediationFor('cross_account_read'),
     );
+    assert.ok(report);
     assert.match(report, /## Impact/);
     assert.match(report, /## Reproduction/);
     assert.match(report, /## Remediation/);
@@ -76,6 +78,11 @@ test('a finding moves to submitted with a clean report, and a duplicate is kept 
     const coverage = await pool.query(`SELECT metadata->>'markdown' AS markdown FROM audit_events WHERE event='CAMPAIGN_COVERAGE'`);
     assert.match(coverage.rows[0].markdown, /Coverage report/);
     assert.equal((await pool.query("SELECT status FROM findings WHERE id=$1", [verified.id])).rows[0].status, 'SUBMITTED');
+    assert.equal((await pool.query(`SELECT status FROM submissions WHERE finding_id=$1`, [verified.id])).rows[0].status, 'submitted');
+    await recordKnownIssue(pool, { programId: 'lab-report', findingType: 'cross_account_read', location: 'https://lab.example.test/api/documents/2' });
+    assert.equal((await pool.query('SELECT id FROM triage_queue WHERE id=$1', [other.id])).rowCount, 0);
+    assert.equal((await pool.query('SELECT dedupe_status FROM triage_suppressed WHERE id=$1', [other.id])).rows[0].dedupe_status, 'known_issue');
+    assert.equal((await pool.query('SELECT dedupe_status FROM triage_suppressed WHERE id=$1', [duplicate.id])).rows[0].dedupe_status, 'prior_submission');
   } finally {
     await pool.end();
     await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

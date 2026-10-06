@@ -36,6 +36,7 @@
     "fleet": "tsx scripts/fleet.ts",
     "metrics": "tsx scripts/metrics.ts",
     "ledger": "tsx scripts/ledger.ts",
+    "preflight": "tsx scripts/preflight.ts",
     "backup": "tsx scripts/backup.ts",
     "restore": "tsx scripts/restore.ts",
     "bounty:fetch": "tsx scripts/bounty-inbox.ts fetch",

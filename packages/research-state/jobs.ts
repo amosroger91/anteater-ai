@@ -8,6 +8,7 @@ import { transaction } from './db.js';
 import { authorize, PolicySchema, targetForAction, type Action } from '../scope-engine/index.js';
 import { followUpActions, jobKey } from '../web-executor/planning.js';
 import { hashRecord } from '../audit/index.js';
+import { insertSubmission } from '../ledger/index.js';
 import { NON_RETRYABLE } from '../operations/index.js';
 import { assertExecutionAllowed, readExecutionControl } from './control.js';
 
@@ -242,8 +243,11 @@ export async function submitFinding(pool: pg.Pool, findingId: string, reviewer: 
   if (name.length < 2 || name.length > 200) throw new Error('human_reviewer_required');
   await transaction(pool, async c => {
     await c.query(`SELECT set_config('anteater.actor', 'human', true)`);
-    const updated = await c.query(`UPDATE findings SET status='SUBMITTED', human_reviewer=$2 WHERE id=$1 AND status IN ('HUMAN_REVIEW','VERIFIED')`, [findingId, name]);
-    if (!updated.rowCount) throw new Error('finding_not_reviewable');
+    const updated = await c.query(`UPDATE findings SET status='SUBMITTED', human_reviewer=$2 WHERE id=$1 AND status IN ('HUMAN_REVIEW','VERIFIED') RETURNING program_id`, [findingId, name]);
+    const programId = updated.rows[0]?.program_id;
+    if (!updated.rowCount || typeof programId !== 'string') throw new Error('finding_not_reviewable');
+    // The submissions row is what a later run matches, so the same lead cannot re-enter the queue.
+    await insertSubmission(c, { id: randomUUID(), programId, findingId, status: 'submitted', amount: null, currency: null });
   });
 }
 

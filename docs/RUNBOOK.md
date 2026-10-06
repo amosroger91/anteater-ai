@@ -36,13 +36,28 @@ another-program
 Credentials (HackerOne hacker API): `HACKERONE_API_USERNAME`, `HACKERONE_API_TOKEN`.
 
 ```bash
+npm run preflight       # read-only: kill switch off, passive HTTP on, database migrated,
+                        # HackerOne credentials present, handles file non-empty, rates sane
 npm run intake:h1       # pulls each program's published scope, skips any that forbid automation,
                         # saves the in-scope assets, and queues passive jobs
 ```
 
+`npm run preflight` does not call HackerOne and does not scan. Fix every `fail` line before intake.
 Programs whose policy prohibits automated scanning are reported as `skipped … prohibited` and never
 tested. Scope comes straight from the H1 API, with its hash recorded as provenance; a changed scope is
 re-reviewed automatically on the next intake.
+
+Optional discovery binaries are absolute paths. An unset or relative path does not run. `PASSIVE_DNS_BIN`
+and `CT_BIN` are invoked as `<bin> -d <apex>` and must print one hostname per line, or a JSON
+`{"host":"..."}` line. Names outside that apex are dropped. Certificate transparency uses `https://crt.sh`
+only when `CT_BIN` is unset.
+
+```
+SUBFINDER_BIN=/absolute/path/to/subfinder
+PASSIVE_DNS_BIN=/absolute/path/to/passive-dns
+CT_BIN=/absolute/path/to/ct-list
+MONITOR_INTERVAL_MS=60000
+```
 
 ## 2. Your own infrastructure (full auto, no approval)
 
@@ -51,26 +66,52 @@ scanner (`npm run setup`, open http://127.0.0.1:...) or the worker tests them di
 `infrastructure/lab/README.md` for the hostname + internal-CA TLS steps and the Proxmox snapshot
 prep before any aggressive run.
 
-## 3. Run the engine (continuously)
+## 3. First real run
+
+Run these in order. Nothing in this sequence submits a report for you.
 
 ```bash
-npm run worker          # claims jobs, tests in scope, verifies, records findings; loops until stopped
-```
-
-It honors the kill switch and per-program rate budgets, recovers leases after a crash, and dead-letters
-non-retryable failures. Leave it running. Re-run `npm run intake:h1` whenever you join new programs.
-
-## 4. Review and submit (your step)
-
-The worker writes each program's state to its Markdown workspace (`FINDINGS.md`) and keeps candidates in
-the database. A finding reaches `VERIFIED` only through deterministic replay; it never auto-submits.
-
-```bash
+npm run preflight
+npm run intake:h1
+npm run worker
+npm run triage
 npm run finding:submit -- --id=<finding-uuid> --reviewer="your name"
 ```
 
-That is the one manual step, by design: submitting to a third party is done under your identity, so you
-confirm the report and send it. Everything up to it is automated.
+`npm run worker` claims jobs, tests in scope, verifies by replay, and records findings. It loops until
+stopped. It honors the kill switch and per-program rate budgets, recovers leases after a crash, and
+dead-letters non-retryable failures. Re-run `npm run intake:h1` whenever you join new programs.
+
+Leave `npm run monitor` running beside the worker. Each cycle enumerates subdomains of every enrolled
+wildcard (`*.example.com` is queried at the apex, not at hosts you already know). It records
+`first_seen` and `last_seen`, and it queues a passive job only for a name that is new since the last
+cycle and allowed by the current reviewed policy. A concrete-only program is not a discovery root.
+`npm run monitor -- --once` runs a single cycle. The default interval is 60 seconds.
+
+`npm run triage` prints the ranked queue (`payout tier × confidence`), dedupe status, and an evidence
+hash. Each queue row is followed by the `finding:submit` command for that id. Info-severity rows are
+not leads. Rows that match a prior submission or a known issue are listed as `suppressed` and are not
+given a submit command.
+
+```bash
+npm run triage -- --known-issue --program=<program-id> --type=<finding-type> --location=<url>
+```
+
+## 4. Review and submit (your step)
+
+The worker writes each program's state to its Markdown workspace (`FINDINGS.md`). A report draft exists
+only for `VERIFIED` and `HUMAN_REVIEW`. A finding reaches `VERIFIED` only through deterministic replay.
+`SUBMITTED` happens only when you run `finding:submit`. That command also writes the submissions row
+that keeps the same program, type, and location out of the next queue.
+
+```bash
+npm run finding:submit -- --id=<finding-uuid> --reviewer="your name"
+npm run ledger -- --infra=0
+npm run ledger -- --record --finding=<finding-uuid> --status=paid --amount=500 --currency=USD
+```
+
+`npm run ledger` prints `net = paid − infra` from the submissions table. Recording a later outcome does
+not submit anything. Sending the report to the program is still your action, under your identity.
 
 ## What stops the engine from doing something unauthorized
 

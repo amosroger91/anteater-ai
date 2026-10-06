@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PassiveDnsDiscovery, SubfinderDiscovery, GitleaksAdapter, type ExecLike } from '../packages/discovery/more-adapters.js';
+import { PassiveDnsDiscovery, PinnedHostListDiscovery, SubfinderDiscovery, GitleaksAdapter, type ExecLike } from '../packages/discovery/more-adapters.js';
 import { candidateJobs } from '../packages/discovery/enqueue.js';
 import { toCandidates } from '../packages/discovery/index.js';
 import { resolveInvocation, NUCLEI, getAdapter } from '../packages/tool-adapters/index.js';
@@ -20,6 +20,22 @@ test('§1 passive DNS keeps only in-root names', async () => {
   const resolver = async () => ['api.example.test', 'cdn.vendor.test', 'bad_host'];
   const raw = await new PassiveDnsDiscovery(resolver).discover(['example.test']);
   assert.deepEqual(raw.map(r => r.host), ['api.example.test']);
+});
+
+test('§1 pinned passive DNS lists in-root names and does not run without an absolute binary', async () => {
+  let calls = 0;
+  const exec: ExecLike = async () => {
+    calls += 1;
+    return { stdout: 'api.example.test\ncdn.vendor.test\n{"host":"www.example.test"}\n' };
+  };
+  assert.deepEqual(await new PinnedHostListDiscovery('passive-dns', exec, 'PASSIVE_DNS_BIN', {}).discover(['example.test']), []);
+  assert.equal(calls, 0);
+  assert.deepEqual(await new PinnedHostListDiscovery('cert-transparency', exec, 'CT_BIN', { CT_BIN: 'ct' }).discover(['example.test']), []);
+  assert.equal(calls, 0);
+  const rows = await new PinnedHostListDiscovery('passive-dns', exec, 'PASSIVE_DNS_BIN', { PASSIVE_DNS_BIN: '/opt/pdns' }).discover(['example.test']);
+  assert.deepEqual(rows.map(row => row.host).sort(), ['api.example.test', 'www.example.test']);
+  assert.equal(rows.every(row => row.source === 'passive-dns'), true);
+  assert.equal(calls, 1);
 });
 
 test('§1 Subfinder/Gitleaks require an absolute pinned binary and never execute otherwise', async () => {

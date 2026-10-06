@@ -26,6 +26,43 @@ export class PassiveDnsDiscovery implements DiscoveryAdapter {
   }
 }
 
+// Line-oriented host list from a pinned absolute binary (PASSIVE_DNS_BIN, CT_BIN). One host per
+// line, or a JSON object with a host field. A relative or unset path does not execute.
+export class PinnedHostListDiscovery implements DiscoveryAdapter {
+  constructor(
+    private source: 'passive-dns' | 'cert-transparency',
+    private exec: ExecLike,
+    private binEnv: string,
+    private env: NodeJS.ProcessEnv = process.env,
+    private confidence = 0.6,
+  ) {}
+
+  async discover(roots: string[]): Promise<RawCandidate[]> {
+    const bin = this.env[this.binEnv];
+    if (!bin || !isAbsolute(bin)) return [];
+    const out = new Map<string, RawCandidate>();
+    for (const root of roots) {
+      const normRoot = normalizeHost(root);
+      if (!normRoot) continue;
+      let stdout = '';
+      try { ({ stdout } = await this.exec(bin, ['-d', normRoot])); } catch { continue; }
+      for (const line of stdout.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        let raw = trimmed;
+        if (trimmed.startsWith('{')) {
+          try { raw = String((JSON.parse(trimmed) as { host?: unknown }).host ?? ''); } catch { continue; }
+        }
+        const host = normalizeHost(raw);
+        if (host && (host === normRoot || host.endsWith('.' + normRoot)) && !out.has(host)) {
+          out.set(host, { host, source: this.source, confidence: this.confidence });
+        }
+      }
+    }
+    return [...out.values()];
+  }
+}
+
 // Subfinder adapter. The binary MUST be an absolute path supplied via SUBFINDER_BIN; the run is
 // injected. One JSON-line host per record ({"host":"..."}).
 export class SubfinderDiscovery implements DiscoveryAdapter {

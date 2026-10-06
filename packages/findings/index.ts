@@ -125,6 +125,26 @@ export function dedupeFindings(findings: Finding[]): Finding[] {
   return [...seen.values()];
 }
 
+// Paid-severity tier. Info is 0 so header and TLS nits do not outrank a vulnerability.
+// `informational` is the same tier as `info`. An unknown label is not a tier.
+export function severityTier(severity: string | undefined): number | null {
+  if (!severity) return null;
+  const key = severity.toLowerCase();
+  if (key === 'informational') return 0;
+  if (Object.hasOwn(SEV_RANK, key)) return SEV_RANK[key as FindingSeverity];
+  return null;
+}
+
+// Same program, type, and location as something already sent, or as an operator known issue.
+// A match in another program is a different report. Prior submissions win over the known-issue list.
+export interface DedupeIdentity { programId: string; type: string; location: string }
+export function duplicateReason(finding: DedupeIdentity, priorSubmissions: readonly DedupeIdentity[], knownIssues: readonly DedupeIdentity[]): 'prior_submission' | 'known_issue' | null {
+  const same = (row: DedupeIdentity) => row.programId === finding.programId && row.type === finding.type && row.location === finding.location;
+  if (priorSubmissions.some(same)) return 'prior_submission';
+  if (knownIssues.some(same)) return 'known_issue';
+  return null;
+}
+
 // Chain severity is the max of members — deterministic. A model's suggested ordering is accepted for
 // presentation, but severity is recomputed here and can never be raised above the member maximum.
 export function chainSeverity(members: Finding[]): FindingSeverity {

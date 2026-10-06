@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { transition, replay, verifyCandidate, dedupeFindings, buildChain, chainSeverity, type Responder, type Finding } from '../packages/findings/index.js';
+import { transition, replay, verifyCandidate, dedupeFindings, duplicateReason, severityTier, buildChain, chainSeverity, type Responder, type Finding } from '../packages/findings/index.js';
 
 test('scanners and models cannot reach VERIFIED or SUBMITTED', () => {
   assert.equal(transition('VERIFICATION', 'VERIFIED', 'model').ok, false);
@@ -73,4 +73,18 @@ test('chain severity is the deterministic member max and cannot be raised by a s
   assert.equal(chain.severity, 'high');                  // but severity still the member max, not inflated
   const ignored = buildChain(members, ['b']);            // invalid suggestion ignored
   assert.deepEqual(ignored.members, ['a', 'b']);
+});
+
+test('a prior submission or known issue suppresses the same lead, and another program does not', () => {
+  const finding = { programId: 'h1-acme', type: 'exposed_vcs', location: 'https://app.example.test/.git/config' };
+  const sent = [{ programId: 'h1-acme', type: 'exposed_vcs', location: 'https://app.example.test/.git/config' }];
+  const known = [{ programId: 'h1-acme', type: 'exposed_admin', location: 'https://app.example.test/admin' }];
+  assert.equal(duplicateReason(finding, sent, known), 'prior_submission');
+  assert.equal(duplicateReason({ ...finding, type: 'exposed_admin', location: 'https://app.example.test/admin' }, [], known), 'known_issue');
+  assert.equal(duplicateReason({ ...finding, programId: 'h1-other' }, sent, known), null);
+  assert.equal(duplicateReason({ ...finding, location: 'https://app.example.test/.env' }, sent, known), null);
+  assert.equal(severityTier('high'), 3);
+  assert.equal(severityTier('info'), 0);
+  assert.equal(severityTier('informational'), 0);
+  assert.equal(severityTier('weird'), null);
 });

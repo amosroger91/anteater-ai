@@ -8,9 +8,20 @@ import { discoverWithinBudget, type LiveDiscoverySources } from './live.js';
 import { newlyExposed, recordObservedHosts } from './store.js';
 
 // One discovery cycle (BOUNTY_EARNINGS_PLAN.md Phase 2.3). Only an
-// automation-permitted program is scanned. Every observed name is recorded.
-// A passive job is queued only for a host that is new since the previous
-// run and that the signed policy admits. Held names are not activated.
+// automation-permitted program with an enrolled wildcard is scanned. Roots are
+// the wildcard apexes, not the concrete assets already in the program. Every
+// observed name is recorded. A passive job is queued only for a host that is
+// new since the previous run and that the current reviewed policy admits.
+
+export function wildcardApexes(allowed: readonly string[]): string[] {
+  const apexes = new Set<string>();
+  for (const rule of allowed) {
+    if (!rule.startsWith('*.')) continue;
+    const apex = normalizeHost(rule.slice(2));
+    if (apex) apexes.add(apex);
+  }
+  return [...apexes].sort();
+}
 
 export interface MonitorReport {
   programId: string;
@@ -19,6 +30,7 @@ export interface MonitorReport {
   admitted: string[];
   held: string[];
   newlyExposed: string[];
+  newExposure: string[];
   enqueued: string[];
 }
 
@@ -45,7 +57,7 @@ async function revocationState(pool: pg.Pool): Promise<RevocationState> {
 }
 
 function empty(programId: string, skipped: string): MonitorReport {
-  return { programId, skipped, candidates: [], admitted: [], held: [], newlyExposed: [], enqueued: [] };
+  return { programId, skipped, candidates: [], admitted: [], held: [], newlyExposed: [], newExposure: [], enqueued: [] };
 }
 
 export async function runMonitorCycle(input: {
@@ -69,15 +81,8 @@ export async function runMonitorCycle(input: {
     const parsed = PolicySchema.safeParse(program.policy);
     if (!parsed.success) { reports.push(empty(programId, 'invalid_policy')); continue; }
     const policy = parsed.data;
-    const assetRows = await input.pool.query(`SELECT url FROM assets WHERE program_id=$1 AND active=true ORDER BY url`, [programId]);
-    const roots: string[] = [];
-    for (const asset of assetRows.rows) {
-      try {
-        const host = normalizeHost(new URL(String(asset.url)).hostname);
-        if (host) roots.push(host);
-      } catch { /* a stored asset that is not a URL is not a discovery root */ }
-    }
-    if (!roots.length) { reports.push(empty(programId, 'no_roots')); continue; }
+    const roots = wildcardApexes(policy.allowed);
+    if (!roots.length) { reports.push(empty(programId, 'no_wildcard')); continue; }
     let budget = budgets.get(programId);
     if (!budget) {
       budget = monitorBudget(policy.requestsPerSecond, input.now);
@@ -99,9 +104,9 @@ export async function runMonitorCycle(input: {
     }
     const fresh = new Set(await newlyExposed(input.pool, programId));
     const admitted = admittedSet.admitted.map(row => row.candidate.host);
+    const newExposure = admitted.filter(host => fresh.has(host));
     const enqueued: string[] = [];
-    for (const host of admitted) {
-      if (!fresh.has(host)) continue;
+    for (const host of newExposure) {
       if (!authorize(policy, `https://${host}/`, 'inspect_http_target', { GLOBAL_KILL_SWITCH: false }).allowed) continue;
       const updated = await input.pool.query(`UPDATE assets SET active=true, policy_revision=$3
         WHERE program_id=$1 AND url=$2 RETURNING id`, [programId, `https://${host}`, policy.revision]);
@@ -117,7 +122,7 @@ export async function runMonitorCycle(input: {
       programId, skipped: null,
       candidates: candidates.map(candidate => candidate.host),
       admitted, held: admittedSet.held.map(row => row.candidate.host),
-      newlyExposed: [...fresh], enqueued,
+      newlyExposed: [...fresh], newExposure, enqueued,
     });
   }
   return reports;

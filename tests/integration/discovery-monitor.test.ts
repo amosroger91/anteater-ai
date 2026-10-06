@@ -53,7 +53,7 @@ test('one monitor cycle raises a newly exposed in-scope host and never queues an
     { host: 'outside.example', source: 'cert-transparency', confidence: 0.7 },
   ] satisfies RawCandidate[];
   let calls = 0;
-  const allowedRoots = new Set(['app.example.test', 'staging.example.test']);
+  const allowedRoots = new Set(['example.test']);
   const guard = (roots: string[]) => {
     calls += 1;
     if (roots.some(root => !allowedRoots.has(root))) throw new Error(`refused_root:${roots.join(',')}`);
@@ -75,6 +75,12 @@ test('one monitor cycle raises a newly exposed in-scope host and never queues an
     assert.ok(program);
     assert.equal(permitted.automation, 'permitted');
     await saveProgram(pool, program, intakeOf(permitted));
+
+    const concreteRaw = raw('concrete', PERMITTED_POLICY, [scope('https://only.example.test')]);
+    const concrete = compileIntake(concreteRaw, sign(concreteRaw));
+    const concreteProgram = concrete.programs[0];
+    assert.ok(concreteProgram);
+    await saveProgram(pool, concreteProgram, intakeOf(concrete));
 
     const manualRaw = raw('manual', MANUAL_ONLY_POLICY, [scope('https://manual.example.test')]);
     const manual = compileIntake(manualRaw, sign(manualRaw));
@@ -98,6 +104,8 @@ test('one monitor cycle raises a newly exposed in-scope host and never queues an
     assert.deepEqual(acme.admitted, ['staging.example.test']);
     assert.deepEqual([...acme.held].sort(), ['outside.example', 'secret.example.test']);
     assert.deepEqual(acme.enqueued, ['staging.example.test']);
+    assert.deepEqual(acme.newExposure, ['staging.example.test']);
+    assert.equal(first.find(report => report.programId === concreteProgram.id)?.skipped, 'no_wildcard');
     assert.equal(beta?.skipped, 'program_revoked');
     assert.equal(calls, 3);
 
@@ -115,13 +123,14 @@ test('one monitor cycle raises a newly exposed in-scope host and never queues an
 
     const second = await runMonitorCycle({ pool, sources });
     assert.deepEqual(second.find(report => report.programId === program.id)?.enqueued, []);
+    assert.deepEqual(second.find(report => report.programId === program.id)?.newExposure, []);
     assert.equal((await pool.query('SELECT count(*)::int AS n FROM research_jobs')).rows[0].n, 1);
-    assert.equal(calls, 9);
+    assert.equal(calls, 6);
 
     await pool.query('UPDATE runtime_control SET global_kill=true WHERE id=1');
     const stopped = await runMonitorCycle({ pool, sources });
     assert.ok(stopped.every(report => report.skipped === 'global_kill' && report.enqueued.length === 0));
-    assert.equal(calls, 9);
+    assert.equal(calls, 6);
     assert.equal((await pool.query('SELECT count(*)::int AS n FROM research_jobs')).rows[0].n, 1);
     assert.equal((await pool.query(`SELECT count(*)::int AS n FROM assets WHERE url='https://manual.example.test'`)).rows[0].n, 1);
   } finally {
