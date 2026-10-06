@@ -27,8 +27,10 @@ test('preflight passes only when the live flags, database, credentials, handles,
   assert.equal(evaluatePreflight({ ...ready, dbReachable: false, pendingMigrations: ['013_lead_readiness.sql'] }).ok, false);
   assert.equal(evaluatePreflight({ ...ready, pendingMigrations: ['013_lead_readiness.sql'] }).ok, false);
   assert.equal(evaluatePreflight({ ...ready, hackerOneToken: false }).ok, false);
-  assert.equal(evaluatePreflight({ ...ready, handles: [] }).ok, false);
-  assert.equal(evaluatePreflight({ ...ready, handles: ['bad handle'] }).ok, false);
+  // A roster from either source is enough: handles alone, or DB-imported programs alone (the setup-UI flow).
+  assert.equal(evaluatePreflight({ ...ready, handles: [] }).ok, true);                 // programs imported via setup, no handles.txt
+  assert.equal(evaluatePreflight({ ...ready, handles: [], programs: [] }).ok, false);  // neither source: no targets at all
+  assert.equal(evaluatePreflight({ ...ready, handles: ['bad handle'] }).ok, false);    // a malformed handle in the file is always an error
   assert.equal(evaluatePreflight({ ...ready, programs: [{ id: 'h1-acme', requestsPerSecond: 50 }] }).ok, false);
   assert.equal(evaluatePreflight({ ...ready, programs: [{ id: 'h1-acme', requestsPerSecond: null }] }).ok, false);
   const secret = 'super-secret-token';

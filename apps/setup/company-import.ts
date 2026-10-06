@@ -7,6 +7,7 @@ import { compileIntake, intakeApprovalSource } from '../../packages/program-inta
 import { sha256Hex } from '../../packages/provenance/index.js';
 import { connect, migrate } from '../../packages/research-state/db.js';
 import { saveProgram } from '../../packages/research-state/workspace.js';
+import { Jobs } from '../../packages/research-state/jobs.js';
 import { applyProfile, type SetupProfile } from '../../packages/setup/profile.js';
 import { loadConfig } from '../../packages/shared/config.js';
 
@@ -140,9 +141,11 @@ export class CompanyImportService {
       };
       if (this.deps.persist) await this.deps.persist(raws, state.approver, signal, done);
       else {
-        const pool = connect(loadConfig(this.environment()).DATABASE_URL);
+        const cfg = loadConfig(this.environment());
+        const pool = connect(cfg.DATABASE_URL);
         try {
           await migrate(pool);
+          const jobs = new Jobs(pool, cfg.MAX_CONCURRENT_JOBS, cfg.JOB_LEASE_SECONDS);
           for (const raw of raws) {
             signal.throwIfAborted();
             try {
@@ -150,8 +153,11 @@ export class CompanyImportService {
               const compiled = compileIntake(raw, approval);
               const program = compiled.programs[0];
               if (!program || compiled.automation !== 'permitted') throw new Error('scope_no_longer_importable');
-              await saveProgram(pool, program, { automationPolicy: compiled.automation, platformHandle: raw.handle,
+              const saved = await saveProgram(pool, program, { automationPolicy: compiled.automation, platformHandle: raw.handle,
                 approver: state.approver, sourceSha256: approval.sourceSha256, approvedAt: approval.approvedAt, revision: approval.revision });
+              // Queue a passive job per in-scope asset so an imported program is actually tested when the engine runs.
+              // enqueue self-gates on scope + DB kill switch; the worker still enforces the kill switch at execution.
+              for (const asset of saved.assets) await jobs.enqueue(saved.id, asset.id, 'inspect_http_target');
               done(raw.handle);
             } catch (error) { done(raw.handle, code(error)); }
           }

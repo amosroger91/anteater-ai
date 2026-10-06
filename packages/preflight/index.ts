@@ -32,8 +32,17 @@ export function evaluatePreflight(facts: PreflightFacts): PreflightReport {
   check('database', facts.dbReachable, facts.dbReachable ? 'reachable' : 'unreachable');
   check('migrations', facts.dbReachable && facts.pendingMigrations.length === 0, facts.pendingMigrations.length ? `pending:${facts.pendingMigrations.join(',')}` : 'current');
   check('hackerone_credentials', facts.hackerOneUser && facts.hackerOneToken, 'username_and_token_required');
-  const handlesOk = facts.handles.length > 0 && facts.handles.every(handle => HANDLE.test(handle));
-  check('handles', handlesOk, handlesOk ? `count=${facts.handles.length}` : 'programs/handles.txt empty or invalid');
+  // Targets come from programs/handles.txt (handle-driven intake) OR from programs imported via the setup
+  // UI (saved into the database). A malformed handle in the file is always an error; otherwise either
+  // source is a valid roster, so the UI-import flow passes readiness with no handles.txt at all.
+  const handlesPresent = facts.handles.length > 0;
+  const handlesValid = handlesPresent && facts.handles.every(handle => HANDLE.test(handle));
+  const programsPresent = facts.programs.length > 0;
+  const targetsOk = handlesPresent ? handlesValid : programsPresent;
+  const targetsDetail = !targetsOk
+    ? (handlesPresent ? 'programs/handles.txt has an invalid handle' : 'no targets: add programs/handles.txt or import programs via setup')
+    : (handlesPresent ? `handles=${facts.handles.length}` : `programs=${facts.programs.length}`);
+  check('targets', targetsOk, targetsDetail);
   const ratesOk = facts.programs.every(program => program.requestsPerSecond !== null && program.requestsPerSecond > 0 && program.requestsPerSecond <= MAX_REQUESTS_PER_SECOND);
   check('rate_budgets', ratesOk, ratesOk ? (facts.programs.length ? `programs=${facts.programs.length}` : 'none_loaded') : 'per_program_rate_out_of_range');
   return { ok, lines };

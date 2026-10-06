@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { loadOperatorEnvironment } from '../packages/setup/operator.js';
-import { startLocalPostgres, type LocalDatabase } from '../packages/local-db/index.js';
+import { ensureLocalPostgres, type LocalDatabase } from '../packages/local-db/index.js';
 
 // "Press go." One command that runs the whole autonomous chain over the programs you have loaded
 // (handle-driven, authorized-only): preflight -> intake -> worker + monitor, looping until Ctrl-C.
@@ -71,7 +72,7 @@ if (external) {
   console.log('auto: using external DATABASE_URL.');
 } else {
   console.log('auto: starting the bundled local database (no Docker needed)…');
-  try { localDb = await startLocalPostgres(); env.DATABASE_URL = localDb.url; console.log('auto: local database ready.'); }
+  try { localDb = await ensureLocalPostgres(); env.DATABASE_URL = localDb.url; console.log('auto: local database ready.'); }
   catch (error) { console.error(`auto: could not start the local database: ${error instanceof Error ? error.message : 'unknown'}`); process.exit(1); }
 }
 const migrated = await run('db:migrate');
@@ -89,8 +90,23 @@ if (!arm) {
 }
 
 // 2) Pull scope for the authorized programs you listed and queue their jobs.
-const intake = await run('intake:h1');
-if (intake !== 0) { console.error('auto: intake failed.'); await shutdown(intake); }
+// Two ways in: a programs/handles.txt list (handle-driven intake), or programs you imported through the
+// setup UI (which already saved them and queued their jobs). If there are no handles, skip intake and let
+// the worker run the imported programs already in the database — the two-button flow needs no handles file.
+function haveHandles(): boolean {
+  const fromEnv = (env.HACKERONE_HANDLES ?? '').split(',').map(handle => handle.trim()).filter(Boolean);
+  if (fromEnv.length) return true;
+  try {
+    const text = readFileSync('programs/handles.txt', 'utf8');
+    return text.split(/\r?\n/).some(line => { const trimmed = line.trim(); return trimmed.length > 0 && !trimmed.startsWith('#'); });
+  } catch { return false; }
+}
+if (haveHandles()) {
+  const intake = await run('intake:h1');
+  if (intake !== 0) { console.error('auto: intake failed.'); await shutdown(intake); }
+} else {
+  console.log('auto: no programs/handles.txt — running the programs you imported in setup (already queued). Skipping intake.');
+}
 
 // 3) Run the engine.
 if (once) {

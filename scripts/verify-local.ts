@@ -23,6 +23,7 @@ try {
   console.log('Temporary PostgreSQL ready on loopback.');
   await run(['--test','tests/integration/state.test.ts']);
   await run(['--test','tests/integration/program-intake.test.ts']);
+  await run(['--test','tests/integration/company-import-run.test.ts']);
   await run(['--test','tests/integration/staging-loop.test.ts']);
   await run(['--test','tests/integration/discovery-store.test.ts']);
   await run(['--test','tests/integration/discovery-monitor.test.ts']);
