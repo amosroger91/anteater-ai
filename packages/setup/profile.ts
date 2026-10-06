@@ -63,20 +63,20 @@ export function normalizeProfile(input: SetupProfile): SetupProfile {
   if (profile.approver && profile.approver.length < 2) throw new Error('invalid_approver');
   if (profile.hackeroneUsername && !handle.safeParse(profile.hackeroneUsername).success) throw new Error('invalid_hackerone_username');
   if (profile.allowPrivateLabTargets && !profile.labHosts) throw new Error('lab_hosts_required');
-  const mailbox = [profile.mailboxHost, profile.mailboxUsername, profile.mailboxPassword, profile.mailboxDomain];
+  const mailbox = [profile.mailboxHost, profile.mailboxUsername, profile.mailboxDomain];
   const mailboxFilled = mailbox.filter(Boolean).length;
   if (mailboxFilled !== 0 && mailboxFilled !== mailbox.length) throw new Error('mailbox_incomplete');
+  if (profile.mailboxPassword && mailboxFilled !== mailbox.length) throw new Error('mailbox_incomplete');
   return SetupProfileSchema.parse(profile);
 }
 
 export function mergeProfile(previous: SetupProfile, request: SetupRequest): SetupProfile {
-  const next = normalizeProfile(request);
   return normalizeProfile({
-    ...next,
-    hackeroneToken: request.clearHackeroneToken ? '' : (next.hackeroneToken || previous.hackeroneToken),
-    mailboxPassword: request.clearMailboxPassword ? '' : (next.mailboxPassword || previous.mailboxPassword),
-    accountKey: request.clearAccountKey ? '' : (next.accountKey || previous.accountKey),
-    evidenceKey: request.clearEvidenceKey ? '' : (next.evidenceKey || previous.evidenceKey),
+    ...request,
+    hackeroneToken: request.clearHackeroneToken ? '' : (request.hackeroneToken || previous.hackeroneToken),
+    mailboxPassword: request.clearMailboxPassword ? '' : (request.mailboxPassword || previous.mailboxPassword),
+    accountKey: request.clearAccountKey ? '' : (request.accountKey || previous.accountKey),
+    evidenceKey: request.clearEvidenceKey ? '' : (request.evidenceKey || previous.evidenceKey),
   });
 }
 
@@ -122,7 +122,7 @@ export function profileStatus(profile: SetupProfile | null): SetupStatus {
 export function applyProfile(env: NodeJS.ProcessEnv, profile: SetupProfile): NodeJS.ProcessEnv {
   const next: NodeJS.ProcessEnv = { ...env };
   const set = (key: string, value: string) => {
-    if (!value || next[key]) return;
+    if (!value || next[key] !== undefined) return;
     next[key] = value;
   };
   set('ACCOUNT_KEY', profile.accountKey);

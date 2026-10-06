@@ -1,11 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
 import { applyProfile, blankProfile, mergeProfile, profileStatus } from '../packages/setup/profile.js';
 import { FileSetupStore, rawKeyProtector } from '../packages/setup/store.js';
+import { loadOperatorEnvironment } from '../packages/setup/operator.js';
 import { loadConfig } from '../packages/shared/config.js';
 import { createSetupServer, type SetupStore } from '../apps/setup/server.js';
 
@@ -62,6 +63,36 @@ test('private lab access requires a hostname, and the environment wins over the 
   assert.equal(loadConfig(env).LAB_TARGET_HOSTS, 'other.example.test');
 });
 
+test('mailbox edits preserve blank passwords and explicit removal keeps only the metadata', () => {
+  const mailbox = { mailboxHost: 'imap.example.test', mailboxUsername: 'researcher', mailboxPassword: 'saved-mailbox-password', mailboxDomain: 'mail.example.test' };
+  const saved = mergeProfile(blankProfile(), request(mailbox));
+  const edited = mergeProfile(saved, request({ ...mailbox, mailboxUsername: 'renamed', mailboxPassword: '' }));
+  assert.equal(edited.mailboxUsername, 'renamed');
+  assert.equal(edited.mailboxPassword, mailbox.mailboxPassword);
+  const cleared = mergeProfile(saved, request({ ...mailbox, mailboxPassword: 'ignored', clearMailboxPassword: true }));
+  assert.equal(cleared.mailboxPassword, '');
+  assert.equal(cleared.mailboxHost, mailbox.mailboxHost);
+  assert.equal(profileStatus(cleared).mailboxPasswordSaved, false);
+  assert.throws(() => mergeProfile(saved, request({ mailboxPassword: '', mailboxHost: mailbox.mailboxHost })), /mailbox_incomplete/);
+});
+
+test('saved credential references reach an explicit runtime environment without entering configuration', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'anteater-setup-env-'));
+  const store = new FileSetupStore(directory, rawKeyProtector);
+  store.write(mergeProfile(blankProfile(), request({ mailboxHost: 'imap.example.test', mailboxUsername: 'researcher', mailboxPassword: 'saved-mailbox-password', mailboxDomain: 'mail.example.test' })));
+  const input = { ANTEATER_SETUP_DIR: directory, HACKERONE_API_TOKEN: 'environment-token' };
+  const resolved = loadOperatorEnvironment(input, rawKeyProtector);
+  assert.equal(resolved.MAILBOX_USERNAME, 'researcher');
+  assert.equal(resolved.MAILBOX_PASSWORD, 'saved-mailbox-password');
+  assert.equal(resolved.HACKERONE_API_TOKEN, 'environment-token');
+  assert.deepEqual(input, { ANTEATER_SETUP_DIR: directory, HACKERONE_API_TOKEN: 'environment-token' });
+  const serialized = JSON.stringify(loadConfig(resolved));
+  assert.equal(serialized.includes('saved-mailbox-password'), false);
+  assert.equal(serialized.includes('environment-token'), false);
+  assert.equal(loadOperatorEnvironment({ ...input, MAILBOX_PASSWORD: '' }, rawKeyProtector).MAILBOX_PASSWORD, '');
+  assert.equal(loadOperatorEnvironment({ ...input, ANTEATER_USE_SETUP: 'false' }, rawKeyProtector).MAILBOX_PASSWORD, undefined);
+});
+
 test('the setup file round-trips without writing the token in the clear', () => {
   const directory = mkdtempSync(join(tmpdir(), 'anteater-setup-'));
   const store = new FileSetupStore(directory, rawKeyProtector);
@@ -71,6 +102,19 @@ test('the setup file round-trips without writing the token in the clear', () => 
   const onDisk = readFileSync(join(directory, 'setup.json'), 'utf8');
   assert.equal(onDisk.includes(token), false);
   assert.equal(onDisk.includes(key), false);
+});
+
+test('a missing key for an existing encrypted setup cannot be silently replaced', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'anteater-setup-missing-key-'));
+  const store = new FileSetupStore(directory, rawKeyProtector);
+  const profile = mergeProfile(blankProfile(), request());
+  store.write(profile);
+  const sealed = readFileSync(join(directory, 'setup.json'), 'utf8');
+  unlinkSync(join(directory, 'setup.key'));
+  assert.throws(() => store.read(), /setup_key_missing/);
+  assert.throws(() => store.write(profile), /setup_key_missing/);
+  assert.equal(existsSync(join(directory, 'setup.key')), false);
+  assert.equal(readFileSync(join(directory, 'setup.json'), 'utf8'), sealed);
 });
 
 test('the loopback wizard saves a profile and its status hides the token', async () => {

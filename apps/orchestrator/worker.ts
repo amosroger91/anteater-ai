@@ -9,7 +9,7 @@ import { FileProgramProvider, FixtureProvider } from '../../packages/bounty-prov
 import { FixtureLLM, OllamaProvider, type LLMProvider } from '../../packages/llm/index.js';
 import { analyzeObservation, analysisPromptHash, boundedObservation } from '../../packages/agent-runtime/index.js';
 import { loadCampaign } from '../../packages/application-research/intake.js';
-import { retryableTransportError } from '../../packages/web-executor/index.js';
+import { executeLeasedJob } from '../../packages/research-state/execution.js';
 
 const config = loadConfig();
 const pool = connect(config.DATABASE_URL);
@@ -37,53 +37,30 @@ async function persistAnalysis(jobs: Jobs, job: Job, observationId: string, obse
 
 async function recoverAnalyses(jobs: Jobs, provider: LLMProvider) {
   if (loadConfig().GLOBAL_KILL_SWITCH || shutdown.signal.aborted) return;
-  const pending = await pool.query<{ observation_id: string; body: unknown; id: string; program_id: string; asset_id: string; action: Job['action']; policy_revision: string; lease_token: string | null; attempts: number }>(`
-    SELECT o.id AS observation_id, o.body, j.id, j.program_id, j.asset_id, j.action, j.policy_revision, j.lease_token, j.attempts
+  const pending = await pool.query<{ observation_id: string; body: unknown; id: string; program_id: string; asset_id: string; action: Job['action']; policy_revision: string; lease_token: string | null; lease_epoch: string; attempts: number }>(`
+    SELECT o.id AS observation_id, o.body, j.id, j.program_id, j.asset_id, j.action, j.policy_revision, j.lease_token, j.lease_epoch, j.attempts
     FROM observations o JOIN research_jobs j ON j.id=o.job_id
     WHERE j.status='completed' AND NOT EXISTS (SELECT 1 FROM agent_runs r WHERE r.job_id=j.id)
     ORDER BY o.created_at LIMIT $1`, [config.MAX_CONCURRENT_JOBS]);
   for (const row of pending.rows) {
-    const job: Job = { id: row.id, program_id: row.program_id, asset_id: row.asset_id, action: row.action, policy_revision: row.policy_revision, lease_token: row.lease_token ?? '', attempts: row.attempts };
+    const job: Job = { id: row.id, program_id: row.program_id, asset_id: row.asset_id, action: row.action, policy_revision: row.policy_revision, lease_token: row.lease_token ?? '', lease_epoch: row.lease_epoch, attempts: row.attempts };
     await persistAnalysis(jobs, job, row.observation_id, row.body, provider);
   }
 }
 
 async function processJob(jobs: Jobs, gateway: ToolGateway, job: Job, provider: LLMProvider) {
-  const controller = new AbortController();
-  const cancel = () => controller.abort();
-  shutdown.signal.addEventListener('abort', cancel, { once: true });
-  if (shutdown.signal.aborted) cancel();
-  let heartbeatBusy = false;
-  const heartbeat = setInterval(() => {
-    if (heartbeatBusy) return;
-    heartbeatBusy = true;
-    void jobs.heartbeat(job).catch(() => controller.abort()).finally(() => { heartbeatBusy = false; });
-  }, Math.max(1000, Math.floor(config.JOB_LEASE_SECONDS * 500)));
-  let observation: unknown;
-  let observationId: string;
   try {
-    observation = await gateway.invoke(job, job.action, job.asset_id, controller.signal);
-    controller.signal.throwIfAborted();
-    const transport = retryableTransportError(observation);
-    if (transport) {
-      await jobs.fail(job);
-      log('JOB_RETRY', { program: job.program_id, job: job.id, result: transport });
+    const result = await executeLeasedJob({ jobs, gateway, job, leaseSeconds: config.JOB_LEASE_SECONDS, signal: shutdown.signal });
+    if (!result.completed) {
+      log('JOB_RETRY', { program: job.program_id, job: job.id, result: result.retry });
       return;
     }
-    // Completion, evidence and allowed follow-up jobs commit together.
-    observationId = await jobs.complete(job, observation);
+    await persistAnalysis(jobs, job, result.observationId, result.observation, provider);
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
-    const defer = shutdown.signal.aborted || message === 'rate_limited' || message === 'kill_switch';
-    if (defer) await jobs.defer(job);
-    else await jobs.fail(job, /^[a-z0-9_]+$/.test(message) ? message : undefined);
+    const defer = shutdown.signal.aborted || message === 'rate_limited' || message === 'kill_switch' || message === 'lease_superseded_by_revocation';
     log(defer ? 'JOB_DEFERRED' : 'JOB_FAILED', { program: job.program_id, job: job.id, result: /^[a-z0-9_]+$/.test(message) ? message : 'operation_failed' });
-    return;
-  } finally {
-    clearInterval(heartbeat);
-    shutdown.signal.removeEventListener('abort', cancel);
   }
-  await persistAnalysis(jobs, job, observationId, observation, provider);
 }
 
 try {
@@ -104,8 +81,8 @@ try {
   const llm = config.LLM_PROVIDER === 'ollama'
     ? new OllamaProvider(config.OLLAMA_URL, config.LLM_MODEL, config.OLLAMA_MODEL_DIGEST)
     : new FixtureLLM();
-  for (const program of campaign.programs) {
-    await saveProgram(pool, program);
+  for (const candidate of campaign.programs) {
+    const program = await saveProgram(pool, candidate);
     for (const asset of program.assets) await jobs.enqueue(program.id, asset.id, research ? 'research_application' : 'inspect_http_target');
   }
   const once = process.argv.includes('--once');

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type pg from 'pg';
 import { transaction } from '../research-state/db.js';
+import { assetIdForHost } from '../shared/asset-id.js';
 import { dedupe, diffCandidates, normalizeHost, SOURCES, type Candidate } from './index.js';
 
 // Persist observed hosts and diff the last two discovery snapshots
@@ -40,8 +41,7 @@ export async function recordObservedHosts(pool: pg.Pool, programId: string, cand
     const revision = scope.rows[0]?.revision;
     if (typeof revision !== 'string' || revision.length === 0) throw new Error('missing_scope');
     for (const candidate of observed) {
-      const id = `${programId}-${candidate.host.replaceAll('.', '-')}`;
-      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) throw new Error('invalid_asset_id');
+      const id = assetIdForHost(candidate.host, programId);
       await client.query(`INSERT INTO assets(id,program_id,url,active,policy_revision,first_seen,last_seen,source,confidence)
         VALUES ($1,$2,$3,false,$4,$5,$5,$6,$7)
         ON CONFLICT (program_id, url) DO UPDATE SET

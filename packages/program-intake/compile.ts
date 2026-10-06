@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { canonicalJson } from '../audit/index.js';
+import { assetIdForHost } from '../shared/asset-id.js';
 import { ApplicationSchema } from '../application-research/profile.js';
 import { CampaignSchema, campaignSource } from '../application-research/intake.js';
 import { ProgramSchema, type Program } from '../bounty-providers/index.js';
@@ -166,7 +167,7 @@ function buildProgram(raw: RawProgram, approval: IntakeApproval, automation: Aut
     requestsPerSecond: raw.rate.requestsPerSecond, application: ApplicationSchema.parse({}),
   };
   const assets = scope.concrete.filter(host => authorize(policy, `https://${host}/`, 'inspect_http_target', { GLOBAL_KILL_SWITCH: false }).allowed)
-    .map(host => ({ id: `${id}-${host.replaceAll('.', '-')}`, url: `https://${host}` }));
+    .map(host => ({ id: assetIdForHost(host, id), url: `https://${host}` }));
   if (!assets.length) return undefined;
   return ProgramSchema.parse({
     id, name: raw.name, platform: 'hackerone', programUrl: raw.programUrl, categories: ['WEB_APPLICATION'], policy, assets,

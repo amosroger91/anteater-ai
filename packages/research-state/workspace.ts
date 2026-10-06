@@ -15,7 +15,7 @@ export interface ProgramIntakeRecord {
   revision: string;
 }
 
-export async function saveProgram(pool: pg.Pool, program: Program, intake?: ProgramIntakeRecord) {
+export async function saveProgram(pool: pg.Pool, program: Program, intake?: ProgramIntakeRecord): Promise<Program> {
   program = ProgramSchema.parse(program);
   const policy = PolicySchema.parse(program.policy);
   if (policy.programId !== program.id) throw new Error('policy_program_mismatch');
@@ -27,6 +27,13 @@ export async function saveProgram(pool: pg.Pool, program: Program, intake?: Prog
   }
   await transaction(pool, async c => {
     await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`program:${program.id}`]);
+    // Preserve foreign-key identity when a newer importer generates a different
+    // ID for a known origin. Callers enqueue the returned, persisted identities.
+    const existing = await c.query('SELECT id,url FROM assets WHERE program_id=$1', [program.id]);
+    const byUrl = new Map<string, string>(existing.rows.map(row => [String(row.url), String(row.id)]));
+    program = ProgramSchema.parse({ ...program, assets: program.assets.map(asset => ({
+      ...asset, id: byUrl.get(asset.url) ?? asset.id,
+    })) });
     await c.query(`INSERT INTO programs(id,name,platform,program_url,categories,automation_policy,platform_handle) VALUES($1,$2,$3,$4,$5,$6,$7)
       ON CONFLICT(id) DO UPDATE SET name=excluded.name,platform=excluded.platform,program_url=excluded.program_url,categories=excluded.categories,
         automation_policy=COALESCE(excluded.automation_policy, programs.automation_policy),
@@ -55,6 +62,7 @@ export async function saveProgram(pool: pg.Pool, program: Program, intake?: Prog
     await c.query(`UPDATE research_jobs SET policy_revision=$2 WHERE program_id=$1 AND status='queued'`, [program.id,policy.revision]);
     await c.query(`INSERT INTO workspace_outbox(program_id) VALUES($1) ON CONFLICT(program_id) DO UPDATE SET revision=workspace_outbox.revision+1`, [program.id]);
   });
+  return program;
 }
 
 // Human-readable exports are projections, not authorization inputs. NOTES.md is operator-owned.

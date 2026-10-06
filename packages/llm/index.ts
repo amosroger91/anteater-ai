@@ -27,27 +27,49 @@ const NUM_CTX = 4096;
 const NUM_PREDICT = 192;
 const SAMPLING_OPTIONS = { temperature: 0, seed: 1, top_k: 10, num_ctx: NUM_CTX, num_predict: NUM_PREDICT } as const;
 
+function validateModelEndpoint(baseUrl: string, model: string): void {
+  const u = new URL(baseUrl);
+  if (u.protocol !== 'http:' || !['localhost', '127.0.0.1', '[::1]'].includes(u.hostname) || u.username || u.password || u.pathname !== '/' || u.search || u.hash) throw new Error('local_model_endpoint_required');
+  if (!model.trim() || /\s/.test(model)) throw new Error('invalid_model_ref');
+}
+
+export function normalizeModelDigest(value: string): string | undefined {
+  return /^(?:sha256:)?[a-f0-9]{64}$/i.test(value) ? `sha256:${value.toLowerCase().replace(/^sha256:/, '')}` : undefined;
+}
+
+// /api/show returns model metadata, not a manifest digest. Tags exposes full
+// digests; match one exact reference so a similarly named model cannot satisfy a pin.
+export async function installedModelDigest(baseUrl: string, model: string): Promise<string> {
+  validateModelEndpoint(baseUrl, model);
+  let response: Response;
+  try {
+    response = await fetch(new URL('/api/tags', baseUrl), {
+      method: 'GET', redirect: 'error', signal: AbortSignal.timeout(10000), headers: { accept: 'application/json' },
+    });
+  } catch { throw new Error('model_digest_unavailable'); }
+  if (!response.ok) throw new Error('model_digest_unavailable');
+  const parsed = z.object({ models: z.array(z.object({
+    name: z.string(), model: z.string().optional(), digest: z.string(),
+  }).passthrough()).max(10000) }).passthrough().safeParse(await response.json().catch(() => null));
+  if (!parsed.success) throw new Error('model_digest_unavailable');
+  const matches = parsed.data.models.filter(entry => entry.name === model || entry.model === model);
+  if (matches.length !== 1) throw new Error('model_digest_unavailable');
+  const match = matches[0]!;
+  if (match.name !== model || (match.model !== undefined && match.model !== model)) throw new Error('model_digest_unavailable');
+  const digest = normalizeModelDigest(match.digest);
+  if (!digest) throw new Error('model_digest_unavailable');
+  return digest;
+}
+
 export class OllamaProvider implements LLMProvider {
   constructor(private baseUrl: string, private model: string, private modelDigest?: string) {
-    const u = new URL(baseUrl);
-    if (u.protocol !== 'http:' || !['localhost', '127.0.0.1', '[::1]'].includes(u.hostname) || u.username || u.password || u.pathname !== '/' || u.search || u.hash) throw new Error('local_model_endpoint_required');
-    if (!model.trim() || /\s/.test(model)) throw new Error('invalid_model_ref');
-    if (!modelDigest || !/^sha256:[a-f0-9]{64}$/i.test(modelDigest)) throw new Error('model_digest_required');
+    validateModelEndpoint(baseUrl, model);
+    if (!modelDigest || !normalizeModelDigest(modelDigest)) throw new Error('model_digest_required');
   }
 
   private async verifiedDigest(): Promise<string> {
-    const expected = this.modelDigest!.toLowerCase();
-    let response: Response;
-    try {
-      response = await fetch(new URL('/api/show', this.baseUrl), {
-        method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000), headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ model: this.model }),
-      });
-    } catch { throw new Error('model_digest_unavailable'); }
-    if (!response.ok) throw new Error('model_digest_unavailable');
-    const parsed = z.object({ digest: z.string().optional() }).passthrough().safeParse(await response.json().catch(() => null));
-    const digest = parsed.success ? parsed.data.digest?.toLowerCase() : undefined;
-    if (!digest || !/^sha256:[a-f0-9]{64}$/.test(digest)) throw new Error('model_digest_unavailable');
+    const expected = normalizeModelDigest(this.modelDigest!);
+    const digest = await installedModelDigest(this.baseUrl, this.model);
     if (digest !== expected) throw new Error('model_digest_mismatch');
     return digest;
   }

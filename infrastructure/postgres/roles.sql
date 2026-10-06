@@ -24,3 +24,7 @@ REVOKE UPDATE ON findings FROM anteater_worker;
 
 -- The verifier may transition findings into VERIFICATION/VERIFIED only.
 GRANT SELECT, UPDATE ON findings TO anteater_verifier;
+
+-- Runtime control is read-only to workers; cleanup debt is fenced by the owning job lease.
+GRANT SELECT ON runtime_control, revoked_programs TO anteater_worker;
+GRANT SELECT, INSERT, UPDATE, DELETE ON resource_cleanup TO anteater_worker;

@@ -15,7 +15,11 @@ const digestA = 'sha256:' + 'a'.repeat(64);
 const digestB = 'sha256:' + 'b'.repeat(64);
 function fetchWithDigest(digest: string, chat: (input: unknown, init?: RequestInit) => Response | Promise<Response>) {
   return async (input: unknown, init?: RequestInit) => {
-    if (String(input).endsWith('/api/show')) return new Response(JSON.stringify({ digest }), { status: 200 });
+    if (String(input).endsWith('/api/tags')) {
+      assert.equal(init?.method, 'GET');
+      return new Response(JSON.stringify({ models: [{ name: 'qwen3:4b', model: 'qwen3:4b', digest: digest.replace(/^sha256:/, ''), size: 2_560_000_000, modified_at: '2026-10-05T00:00:00Z' }] }), { status: 200 });
+    }
+    assert.ok(String(input).endsWith('/api/chat'));
     return chat(input, init);
   };
 }
@@ -41,6 +45,38 @@ test('Ollama refuses a running model whose digest does not match', async () => {
   globalThis.fetch = fetchWithDigest(digestB, () => new Response('{}', { status: 200 })) as typeof fetch;
   try {
     await assert.rejects(new OllamaProvider('http://127.0.0.1:11434/', 'qwen3:4b', digestA).generate({ system: 's', input: 'i' }), /model_digest_mismatch/);
+  } finally { globalThis.fetch = original; }
+});
+
+test('Ollama normalizes full hex pins and prefixed installed digests', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (input: unknown) => {
+    if (String(input).endsWith('/api/tags')) return new Response(JSON.stringify({ models: [{ name: 'qwen3:4b', model: 'qwen3:4b', digest: digestA.toUpperCase() }] }));
+    return new Response(JSON.stringify({ model: 'qwen3:4b', message: { content: '{}' }, done: true, done_reason: 'stop' }));
+  }) as typeof fetch;
+  try {
+    const result = await new OllamaProvider('http://127.0.0.1:11434/', 'qwen3:4b', 'A'.repeat(64)).generate({ system: 's', input: 'i' });
+    assert.equal(result.modelDigest, digestA);
+  } finally { globalThis.fetch = original; }
+});
+
+test('Ollama refuses absent, ambiguous, conflicting or malformed model entries before chat', async () => {
+  const original = globalThis.fetch;
+  const exact = { name: 'qwen3:4b', model: 'qwen3:4b', digest: digestA };
+  try {
+    for (const models of [
+      [], [{ ...exact, name: 'qwen3:8b', model: 'qwen3:8b' }], [exact, exact],
+      [{ ...exact, model: 'qwen3:8b' }], [{ ...exact, digest: 'a'.repeat(12) }],
+    ]) {
+      let calls = 0;
+      globalThis.fetch = (async (input: unknown) => {
+        calls++;
+        assert.ok(String(input).endsWith('/api/tags'));
+        return new Response(JSON.stringify({ models }));
+      }) as typeof fetch;
+      await assert.rejects(new OllamaProvider('http://127.0.0.1:11434/', 'qwen3:4b', digestA).generate({ system: 's', input: 'i' }), /model_digest_unavailable/);
+      assert.equal(calls, 1);
+    }
   } finally { globalThis.fetch = original; }
 });
 

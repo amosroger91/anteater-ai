@@ -22,7 +22,7 @@ export class FileSetupStore {
     if (!existsSync(sealedPath)) return null;
     const parsed = JSON.parse(readFileSync(sealedPath, 'utf8')) as { version?: number; sealed?: string };
     if (parsed.version !== 1 || typeof parsed.sealed !== 'string') throw new Error('setup_unreadable');
-    const key = this.keyHex();
+    const key = this.keyHex(false);
     let json: string;
     try { json = decrypt(parsed.sealed, key); }
     catch { throw new Error('setup_unreadable'); }
@@ -32,16 +32,17 @@ export class FileSetupStore {
   write(profile: SetupProfile): void {
     const stored = SetupProfileSchema.parse(profile);
     mkdirSync(this.directory, { recursive: true });
-    const sealed = encrypt(JSON.stringify(stored), this.keyHex());
+    const sealed = encrypt(JSON.stringify(stored), this.keyHex(!existsSync(join(this.directory, 'setup.json'))));
     writeFileSync(join(this.directory, 'setup.json'), JSON.stringify({ version: 1, sealed }), { mode: 0o600 });
   }
 
-  private keyHex(): string {
+  private keyHex(allowCreate: boolean): string {
     const path = join(this.directory, 'setup.key');
     mkdirSync(this.directory, { recursive: true });
     if (!existsSync(path)) {
+      if (!allowCreate) throw new Error('setup_key_missing');
       const created = randomBytes(32);
-      writeFileSync(path, this.keys.sealKey(created), { mode: 0o600 });
+      writeFileSync(path, this.keys.sealKey(created), { mode: 0o600, flag: 'wx' });
     }
     const opened = this.keys.openKey(readFileSync(path));
     if (opened.length !== 32) throw new Error('setup_unreadable');

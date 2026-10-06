@@ -43,7 +43,7 @@ export function retentionPlan(records: RetainedRecord[], retentionDays: Record<s
 
 // Errors that will never succeed on retry: a scope/policy denial is deterministic, so retrying wastes
 // requests against a target. These go straight to the dead-letter queue.
-export const NON_RETRYABLE = new Set(['policy_denied', 'out_of_scope', 'excluded', 'expired_policy', 'kill_switch', 'invalid_or_missing_policy', 'prohibited_action']);
+export const NON_RETRYABLE = new Set(['policy_denied', 'out_of_scope', 'excluded', 'expired_policy', 'kill_switch', 'program_revoked', 'invalid_or_missing_policy', 'prohibited_action']);
 
 const RETENTION_TABLES = new Set(['observations', 'dead_letter']);
 

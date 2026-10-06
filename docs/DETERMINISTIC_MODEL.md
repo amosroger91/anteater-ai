@@ -16,7 +16,7 @@ Authorization, action selection and follow-up scheduling live in code. Models cl
 
 The local provider uses `think: false`, `stream: false`, temperature 0, seed 1, top_k 10, num_ctx 4096 and num_predict 192. It requires a configured `sha256:` model digest, allows only loopback HTTP, refuses redirects and bounds each request to 60 seconds. It accepts the assistant-role response envelope, requires `done_reason=stop`, rejects thinking traces and checks reported prompt usage against the context budget. Zod validates the returned object independently of the grammar.
 
-The configured digest is recorded provenance, **not proof that the mutable Ollama tag currently contains those weights**. Registry-based digest verification remains open. Fixed sampling also does not guarantee identical results across hardware, drivers or model/runtime versions.
+Before inference the provider reads `/api/tags`, resolves the exact configured model name (including the implicit `:latest` tag), and checks its manifest digest against the configured SHA256. Bare hexadecimal API digests and `sha256:` configuration values are normalized before comparison. Missing, ambiguous, malformed, or mismatched entries refuse inference. `/api/show` is not a digest endpoint. This is a check of the local registry at that moment, not a cryptographic attestation of a running process; a mutable tag can still change between lookup and inference. Fixed sampling also does not guarantee identical results across hardware, drivers or model/runtime versions.
 
 ## Grounding and repair
 
@@ -44,4 +44,4 @@ Only a successful 2xx root observation can propose fixed follow-ups. HTML/text c
 
 Tests cover request options, role envelopes, incomplete/thinking responses, fabricated evidence, one bounded repair, repair-metadata rejection, valid JSON under oversized input, persistence separation, atomic follow-ups and fixture replay. No real model inference or research-target traffic was used for this validation.
 
-Remaining work includes an adversarial evaluation corpus with acceptance metrics, real hardware/model benchmarks, digest verification against installed weights, recovery of model analysis after a crash between observation completion and analysis persistence, model concurrency budgets across workers, authenticated human review and least-privilege database roles. These are explicit limits of the current implementation.
+The worker recovers observations that have no persisted analysis after a crash. Coordination of that analysis across multiple workers, an adversarial evaluation corpus with acceptance metrics, real hardware/model benchmarks, binding inference to immutable installed weights, authenticated human review, and least-privilege database roles remain open. The October 5 review fixes update the digest adapter and regression fixtures; no tests or real inference were run for those changes at the user's instruction.

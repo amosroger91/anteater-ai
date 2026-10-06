@@ -5,7 +5,7 @@ import type { IncomingHttpHeaders } from 'node:http';
 import { addressBlockReason } from '../../scripts/posture-check.js';
 import { mutatingGet, underPath, type Application } from './profile.js';
 
-export type Purpose = 'discover' | 'login' | 'signup' | 'verify';
+export type Purpose = 'discover' | 'login' | 'signup' | 'verify' | 'cleanup';
 export interface ExchangeRequest { url: URL; method: string; headers: Record<string, string>; body?: Buffer; signal: AbortSignal; maxBytes: number; beforeConnect: () => Promise<void> }
 export interface ExchangeResponse { status: number; headers: IncomingHttpHeaders; body: Buffer; truncated: boolean }
 export type Exchange = (request: ExchangeRequest) => Promise<ExchangeResponse>;
@@ -39,7 +39,7 @@ export function allowedRequest(origin: string, app: Application, value: string, 
   if (method === 'POST' && purpose === 'login') return app.auth.loginWritePaths.includes(path);
   if (method === 'POST' && purpose === 'signup' && app.auth.signupEnabled) return app.auth.signupWritePaths.includes(path);
   if (method === 'POST' && purpose === 'verify') return app.privateResources.some(rule => rule.createPath === path);
-  if (method === 'DELETE' && purpose === 'verify') return ownedDeletes.has(url.href);
+  if (method === 'DELETE' && purpose === 'cleanup') return ownedDeletes.has(url.href);
   return false;
 }
 
@@ -82,16 +82,31 @@ export class RequestGate {
   count = 0;
   constructor(readonly origin: string, readonly app: Application, readonly signal: AbortSignal,
     private beforeRequest: (signal: AbortSignal) => Promise<void>, private exchange: Exchange = pinnedExchange,
-    private activeEnabled = false) {}
+    private activeEnabled = false, private parentSignal?: AbortSignal) {}
   deny(reason: string) { this.blocked[reason] = (this.blocked[reason] ?? 0) + 1; }
+  // A cleanup request remains inside maxRequests, but discovery and replay cannot spend its slot.
+  get remainingRequests() { return Math.max(0, this.app.maxRequests - this.count - this.ownedDeletes.size); }
+  reserveCleanup(value: string): boolean {
+    if (this.ownedDeletes.has(value)) return true;
+    if (!this.activeEnabled || this.remainingRequests < 1 || !allowedRequest(this.origin, this.app, value, 'DELETE', 'cleanup', new Set([value]))) return false;
+    this.ownedDeletes.add(value);
+    return true;
+  }
+  releaseCleanup(value: string) { this.ownedDeletes.delete(value); }
   async send(session: string, purpose: Purpose, value: string, method = 'GET', headers: Record<string, string> = {}, body?: Buffer): Promise<ExchangeResponse> {
-    this.signal.throwIfAborted();
+    const cleanup = purpose === 'cleanup' && method === 'DELETE' && this.ownedDeletes.has(value);
+    // Ordinary assessment expiry must not abandon owned data. Parent cancellation (kill switch,
+    // revoked scope, shutdown, or lost job lease) still applies, as does beforeRequest below.
+    const baseSignal = cleanup ? this.parentSignal : this.signal;
+    baseSignal?.throwIfAborted();
     if (!allowedRequest(this.origin, this.app, value, method, purpose, this.ownedDeletes)) { this.deny('out_of_scope_or_method'); throw new Error('request_denied'); }
     if (!['GET', 'HEAD'].includes(method) && !this.activeEnabled) { this.deny('active_testing_disabled'); throw new Error('active_testing_disabled'); }
     if ((body?.length ?? 0) > 65536) throw new Error('request_body_too_large');
-    if (this.count >= this.app.maxRequests) { this.deny('request_budget'); throw new Error('request_budget'); }
+    if (this.count >= this.app.maxRequests || (!cleanup && this.remainingRequests < 1)) { this.deny('request_budget'); throw new Error('request_budget'); }
+    if (cleanup) this.ownedDeletes.delete(value);
     this.count++;
-    const signal = AbortSignal.any([this.signal, AbortSignal.timeout(15000)]);
+    const timeout = AbortSignal.timeout(15000);
+    const signal = baseSignal ? AbortSignal.any([baseSignal, timeout]) : timeout;
     signal.throwIfAborted();
     const response = await abortable(this.exchange({ url: new URL(value), method, headers, body, signal, maxBytes: this.app.maxResponseBytes,
       beforeConnect: () => abortable(this.beforeRequest(signal), signal) }), signal);

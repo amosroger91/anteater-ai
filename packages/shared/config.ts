@@ -29,7 +29,8 @@ const schema = z.object({
   }, 'Local loopback Ollama endpoint required'),
   LLM_MODEL: z.string().min(1).default('qwen3:4b'),
   LLM_PROVIDER: z.enum(['fixture', 'ollama']).default('fixture'),
-  OLLAMA_MODEL_DIGEST: z.string().regex(/^sha256:[a-f0-9]{64}$/i).optional(),
+  OLLAMA_MODEL_DIGEST: z.string().regex(/^(?:sha256:)?[a-f0-9]{64}$/i)
+    .transform(value => `sha256:${value.toLowerCase().replace(/^sha256:/, '')}`).optional(),
 });
 export const loadConfig = (env: NodeJS.ProcessEnv = process.env) => schema.parse(env);
 export type Config = ReturnType<typeof loadConfig>;

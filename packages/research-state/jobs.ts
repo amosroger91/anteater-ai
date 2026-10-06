@@ -9,29 +9,30 @@ import { authorize, PolicySchema, targetForAction, type Action } from '../scope-
 import { followUpActions, jobKey } from '../web-executor/planning.js';
 import { hashRecord } from '../audit/index.js';
 import { NON_RETRYABLE } from '../operations/index.js';
+import { assertExecutionAllowed, readExecutionControl } from './control.js';
 
 const GENESIS = '0'.repeat(64);
 
 export interface Job {
   id: string; program_id: string; asset_id: string; action: Action; policy_revision: string;
-  lease_token: string; attempts: number;
+  lease_token: string; lease_epoch: string; attempts: number;
 }
 
 export class Jobs {
   constructor(private pool: pg.Pool, private concurrency = 1, private leaseSeconds = 30, private killed: () => boolean = () => false) {}
 
   async enqueue(program: string, asset: string, action: Action, key?: string) {
-    if (this.killed() || await this.databaseKilled()) return;
+    if (this.killed() || await this.databaseKilled(this.pool, program)) return;
     return transaction(this.pool, c => this.enqueueOn(c, program, asset, action, key));
   }
 
-  private async databaseKilled(c: pg.Pool | pg.PoolClient = this.pool): Promise<boolean> {
-    const control = await c.query('SELECT global_kill FROM runtime_control WHERE id=1');
-    return control.rows[0]?.global_kill === true;
+  private async databaseKilled(c: pg.Pool | pg.PoolClient = this.pool, program?: string): Promise<boolean> {
+    const control = await readExecutionControl(c, program);
+    return control.globalKill || control.revoked;
   }
 
   private async enqueueOn(c: pg.PoolClient, program: string, asset: string, action: Action, key?: string, expectedRevision?: string) {
-    if (this.killed() || await this.databaseKilled(c)) return;
+    if (this.killed() || await this.databaseKilled(c, program)) return;
     await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`program:${program}`]);
     const source = await c.query(`SELECT a.url,s.policy FROM assets a JOIN scope_rules s ON s.program_id=a.program_id
       WHERE a.id=$1 AND a.program_id=$2 AND a.active=true FOR SHARE OF a,s`, [asset, program]);
@@ -53,46 +54,55 @@ export class Jobs {
     if (inserted.rowCount) await writeAudit(c, program, 'JOB_QUEUED', { jobId: id, assetId: asset, metadata: { action, dedupeKey } });
   }
 
-  async claim(): Promise<Job | undefined> {
-    if (this.killed() || await this.databaseKilled()) return undefined;
+  async claim(programId?: string): Promise<Job | undefined> {
+    if (this.killed() || await this.databaseKilled(this.pool, programId)) return undefined;
     return transaction(this.pool, async c => {
-      if (this.killed() || await this.databaseKilled(c)) return undefined;
+      if (this.killed() || await this.databaseKilled(c, programId)) return undefined;
       await c.query('SELECT pg_advisory_xact_lock(784291)');
       await c.query(`UPDATE research_jobs SET status='failed',lease_token=NULL,lease_until=NULL,lease_heartbeat_at=NULL
         WHERE status='running' AND lease_until <= now() AND attempts >= max_attempts`);
       const count = await c.query(`SELECT count(*)::int AS n FROM research_jobs WHERE status='running' AND lease_until > now()`);
       if (count.rows[0].n >= this.concurrency) return undefined;
       const result = await c.query(`UPDATE research_jobs j SET status='running',attempts=j.attempts+1,
-        lease_token=$1,lease_until=now()+$2*interval '1 second',lease_heartbeat_at=now()
+        lease_token=$1,lease_until=now()+$2*interval '1 second',lease_heartbeat_at=now(),
+        lease_epoch=(SELECT epoch FROM runtime_control WHERE id=1 AND global_kill=false)
         WHERE j.id=(SELECT candidate.id FROM research_jobs candidate
           JOIN assets a ON a.id=candidate.asset_id AND a.program_id=candidate.program_id AND a.active=true
           JOIN scope_rules s ON s.program_id=candidate.program_id
-          WHERE candidate.attempts<candidate.max_attempts
+          WHERE candidate.attempts<candidate.max_attempts AND ($3::text IS NULL OR candidate.program_id=$3)
+            AND EXISTS(SELECT 1 FROM runtime_control WHERE id=1 AND global_kill=false)
             AND candidate.policy_revision=s.policy->>'revision'
             AND NOT EXISTS (SELECT 1 FROM revoked_programs revoked WHERE revoked.program_id=candidate.program_id)
             AND ((candidate.status='queued' AND candidate.available_at<=now()) OR (candidate.status='running' AND candidate.lease_until<=now()))
           ORDER BY candidate.created_at FOR UPDATE OF candidate SKIP LOCKED LIMIT 1)
-        RETURNING j.*`, [randomUUID(), this.leaseSeconds]);
+        RETURNING j.*`, [randomUUID(), this.leaseSeconds, programId ?? null]);
       return result.rows[0] as Job | undefined;
     });
   }
 
   async heartbeat(job: Job, seconds = this.leaseSeconds) {
+    await assertExecutionAllowed(this.pool, job.program_id, job.lease_epoch, this.killed());
     const changed = await this.pool.query(`UPDATE research_jobs SET lease_until=now()+$3*interval '1 second',lease_heartbeat_at=now()
-      WHERE id=$1 AND lease_token=$2 AND status='running' AND lease_until>now()`, [job.id, job.lease_token, seconds]);
+      WHERE id=$1 AND lease_token=$2 AND status='running' AND lease_until>now()
+        AND lease_epoch=$4 AND EXISTS(SELECT 1 FROM runtime_control WHERE id=1 AND global_kill=false AND epoch=$4)
+        AND NOT EXISTS(SELECT 1 FROM revoked_programs WHERE program_id=$5)`, [job.id, job.lease_token, seconds, job.lease_epoch, job.program_id]);
     if (!changed.rowCount) throw new Error('lost_lease');
   }
 
   async complete(job: Job, observation: unknown): Promise<string> {
     const observationId = randomUUID();
     await transaction(this.pool, async c => {
+      await assertExecutionAllowed(c, job.program_id, job.lease_epoch, this.killed());
       await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`program:${job.program_id}`]);
       const current = await c.query(`SELECT a.url,s.policy FROM assets a JOIN scope_rules s ON s.program_id=a.program_id
         WHERE a.id=$1 AND a.program_id=$2 AND a.active=true AND a.policy_revision=$3 FOR SHARE OF a,s`, [job.asset_id, job.program_id, job.policy_revision]);
       const row = current.rows[0];
       if (!row || row.policy.revision !== job.policy_revision || !authorize(row.policy, targetForAction(row.url, job.action), job.action, { GLOBAL_KILL_SWITCH: false }).allowed) throw new Error('policy_changed');
       const changed = await c.query(`UPDATE research_jobs SET status='completed',result=$3,lease_token=NULL,lease_until=NULL,lease_heartbeat_at=NULL
-        WHERE id=$1 AND lease_token=$2 AND status='running' AND lease_until>now() RETURNING id`, [job.id, job.lease_token, JSON.stringify(observation)]);
+        WHERE id=$1 AND lease_token=$2 AND status='running' AND lease_until>now()
+          AND lease_epoch=$4 AND EXISTS(SELECT 1 FROM runtime_control WHERE id=1 AND global_kill=false AND epoch=$4)
+          AND NOT EXISTS(SELECT 1 FROM revoked_programs WHERE program_id=$5)
+        RETURNING id`, [job.id, job.lease_token, JSON.stringify(observation), job.lease_epoch, job.program_id]);
       if (!changed.rowCount) throw new Error('lost_lease');
       await c.query('INSERT INTO observations(id,program_id,job_id,body) VALUES($1,$2,$3,$4)', [observationId, job.program_id, job.id, JSON.stringify(observation)]);
       await c.query('INSERT INTO tool_runs(id,job_id,tool,result) VALUES($1,$2,$3,$4)', [randomUUID(), job.id, job.action, JSON.stringify(observation)]);
@@ -153,9 +163,9 @@ export class Jobs {
   async fail(job: Job, code?: string) {
     if (code && NON_RETRYABLE.has(code)) {
       await transaction(this.pool, async c => {
-        await c.query(`UPDATE research_jobs SET status='failed',lease_token=NULL,lease_until=NULL,lease_heartbeat_at=NULL
+        const changed = await c.query(`UPDATE research_jobs SET status='failed',lease_token=NULL,lease_until=NULL,lease_heartbeat_at=NULL
           WHERE id=$1 AND lease_token=$2 AND status='running'`, [job.id, job.lease_token]);
-        await c.query('INSERT INTO dead_letter(id,job_id,reason,error_code) VALUES($1,$2,$3,$4)', [randomUUID(), job.id, `non_retryable:${code}`, code]);
+        if (changed.rowCount) await c.query('INSERT INTO dead_letter(id,job_id,reason,error_code) VALUES($1,$2,$3,$4)', [randomUUID(), job.id, `non_retryable:${code}`, code]);
       });
       return;
     }

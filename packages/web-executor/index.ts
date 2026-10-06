@@ -187,6 +187,9 @@ export async function probeAuthorizedGets(input: {
   maxBytes: number;
   deps?: PassiveDeps;
   reserve?: () => Promise<boolean>;
+  beforeRequest?: (target: string) => Promise<void>;
+  signal?: AbortSignal;
+  labTargets?: LabTargetAllow;
 }): Promise<PaidProbe> {
   const empty: PaidProbe = { probed: [], signals: [] };
   const host = input.host.toLowerCase().replace(/\.$/, '');
@@ -194,11 +197,16 @@ export async function probeAuthorizedGets(input: {
   const probed: string[] = [];
   const signals: PaidProbe['signals'] = [];
   for (const path of input.paths) {
+    input.signal?.throwIfAborted();
     if (!path.startsWith('/') || path.includes('//') || path.includes('?') || path.includes('#')) continue;
     const decision = authorize(input.policy, `https://${host}${path}`, 'inspect_http_target', { GLOBAL_KILL_SWITCH: input.killSwitch });
     if (!decision.allowed) continue;
     if (input.reserve && !await input.reserve()) break;
-    const observation = await executePassiveHttp(`https://${host}${path}`, { maxBytes: input.maxBytes, deps: input.deps });
+    const target = `https://${host}${path}`;
+    const observation = await executePassiveHttp(target, {
+      maxBytes: input.maxBytes, deps: input.deps, signal: input.signal, labTargets: input.labTargets,
+      beforeRequest: input.beforeRequest ? () => input.beforeRequest!(target) : undefined,
+    });
     if (typeof observation.status !== 'number' || observation.error !== undefined) continue;
     probed.push(path);
     if (!Array.isArray(observation.signals)) continue;

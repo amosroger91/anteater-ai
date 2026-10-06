@@ -74,7 +74,7 @@ export class BrowserSession {
   }
   async crawl(start: string, app: Application) {
     const queue = [{ url: start, depth: 0 }]; const queued = new Set([start]);
-    while (queue.length && !this.fatal && this.visited.size < app.maxPages && !this.gate.signal.aborted && this.gate.count < app.maxRequests) {
+    while (queue.length && !this.fatal && this.visited.size < app.maxPages && !this.gate.signal.aborted && this.gate.remainingRequests > 0) {
       const next = queue.shift()!;
       const item = await this.visit(next.url); if (!item || next.depth >= app.maxDepth) continue;
       for (const value of item.links) {
@@ -107,13 +107,14 @@ export class BrowserSession {
     await form.evaluate((element: HTMLFormElement) => element.requestSubmit());
     await this.page.waitForTimeout(300); await this.settle();
   }
-  async request(url: string, method = 'GET', body?: unknown): Promise<ExchangeResponse> {
+  async request(url: string, method = 'GET', body?: unknown, purpose = this.purpose): Promise<ExchangeResponse> {
     const headers: Record<string, string> = {};
     const cookies = await this.context.cookies(url); if (cookies.length) headers.cookie = cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ');
     if (this.authorization) headers.authorization = this.authorization;
     if (body !== undefined) headers['content-type'] = 'application/json';
-    return this.gate.send(this.id, this.purpose, url, method, headers, body === undefined ? undefined : Buffer.from(JSON.stringify(body)));
+    return this.gate.send(this.id, purpose, url, method, headers, body === undefined ? undefined : Buffer.from(JSON.stringify(body)));
   }
+  cleanup(url: string): Promise<ExchangeResponse> { return this.request(url, 'DELETE', undefined, 'cleanup'); }
   async authenticated(account: Account, app: Application): Promise<boolean> {
     if (await this.challenge()) return false;
     if (app.auth.sessionPath) {

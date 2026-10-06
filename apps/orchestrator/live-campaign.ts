@@ -1,5 +1,4 @@
 import type pg from 'pg';
-import { setTimeout as sleep } from 'node:timers/promises';
 import { discoverAndPartition, type DiscoveryAdapter } from '../../packages/discovery/index.js';
 import { candidateJobs, type JobSpec } from '../../packages/discovery/enqueue.js';
 import { coverageReport, type CoverageSummary, type ScanResult } from '../../packages/coverage/index.js';
@@ -8,10 +7,9 @@ import { remediationFor } from '../../packages/remediation/index.js';
 import type { Action } from '../../packages/scope-engine/index.js';
 import { ProgramSchema, type Program } from '../../packages/bounty-providers/index.js';
 import { saveProgram } from '../../packages/research-state/workspace.js';
-import { acquireRate, Jobs, recordCampaignCoverage, recordReplay } from '../../packages/research-state/jobs.js';
+import { Jobs, recordCampaignCoverage, recordReplay } from '../../packages/research-state/jobs.js';
 import { ToolGateway, type GatewayExecutors } from '../../packages/mcp/index.js';
-import { probeAuthorizedGets, retryableTransportError } from '../../packages/web-executor/index.js';
-import { VCS_READ_PATHS } from '../../packages/web-checks/index.js';
+import { executeLeasedJob } from '../../packages/research-state/execution.js';
 import type { Config } from '../../packages/shared/config.js';
 
 // Persistent campaign (BOUNTY_EARNINGS_PLAN.md Phase 0.2). Discovery, admission, job specs,
@@ -91,53 +89,23 @@ export async function runLiveCampaign(
   if (!plan.assets.length) {
     return { admitted: plan.admitted, held: plan.held, jobs: plan.jobs, observations: [], coverage: coverageReport([]).summary, remediations: [] };
   }
-  const program = ProgramSchema.parse({ ...input.program, assets: plan.assets.map(({ id, url }) => ({ id, url })) });
-  await saveProgram(deps.pool, program);
+  const program = await saveProgram(deps.pool, ProgramSchema.parse({ ...input.program, assets: plan.assets.map(({ id, url }) => ({ id, url })) }));
   const config = deps.config;
   const jobs = new Jobs(deps.pool, config().MAX_CONCURRENT_JOBS, config().JOB_LEASE_SECONDS, () => config().GLOBAL_KILL_SWITCH);
   const gateway = new ToolGateway(deps.pool, config, deps.executors);
-  const byAsset = new Map(plan.assets.map(asset => [asset.id, asset.host]));
+  const byAsset = new Map(program.assets.map(asset => [asset.id, new URL(asset.url).hostname]));
   for (const spec of plan.jobs) {
-    const asset = plan.assets.find(item => item.host === spec.host);
+    const asset = program.assets.find(item => new URL(item.url).hostname === spec.host);
     if (!asset) continue;
     await jobs.enqueue(program.id, asset.id, spec.action, spec.dedupeKey);
   }
   const observations: LiveCampaignResult['observations'] = [];
   for (let n = 0; n < 32; n++) {
-    const job = await jobs.claim();
+    const job = await jobs.claim(program.id);
     if (!job) break;
-    try {
-      const observation = await gateway.invoke(job, job.action, job.asset_id);
-      if (job.action === 'inspect_http_target' && observation.error === undefined) {
-        const host = byAsset.get(job.asset_id);
-        if (host) {
-          const paid = await probeAuthorizedGets({
-            host, policy: program.policy, killSwitch: config().GLOBAL_KILL_SWITCH, enabled: config().ENABLE_PASSIVE_HTTP,
-            paths: VCS_READ_PATHS, maxBytes: config().MAX_RESPONSE_BYTES, deps: deps.executors?.passive,
-            reserve: async () => {
-              for (let attempt = 0; attempt < 8; attempt++) {
-                if (config().GLOBAL_KILL_SWITCH) return false;
-                if (await acquireRate(deps.pool, program.id, program.policy.requestsPerSecond, config().MAX_REQUEST_RATE)) return true;
-                await sleep(250);
-              }
-              return false;
-            },
-          });
-          const existing = Array.isArray(observation.signals) ? observation.signals : [];
-          observation.signals = [...existing, ...paid.signals];
-          observation.probedPaths = paid.probed;
-        }
-      }
-      const transport = retryableTransportError(observation);
-      if (transport) { await jobs.fail(job); continue; }
-      const observationId = await jobs.complete(job, observation);
-      observations.push({ host: byAsset.get(job.asset_id) ?? job.asset_id, observationId, observation });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '';
-      if (message === 'rate_limited' || message === 'kill_switch') await jobs.defer(job);
-      else await jobs.fail(job, /^[a-z0-9_]+$/.test(message) ? message : undefined);
-      throw error;
-    }
+    const result = await executeLeasedJob({ jobs, gateway, job, leaseSeconds: config().JOB_LEASE_SECONDS });
+    if (!result.completed) continue;
+    observations.push({ host: byAsset.get(job.asset_id) ?? job.asset_id, observationId: result.observationId, observation: result.observation });
   }
   const results: ScanResult[] = observations.map(row => ({
     origin: `https://${row.host}`,

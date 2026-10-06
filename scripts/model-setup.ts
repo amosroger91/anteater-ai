@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import { platform } from 'node:process';
 import { z } from 'zod';
 import { writeFile } from 'node:fs/promises';
+import { installedModelDigest } from '../packages/llm/index.js';
 
 // Local model advisor and installer for the analysis role.
 //
@@ -243,9 +244,7 @@ try {
     console.log(`This will download weights and run:\n  ollama pull ${model}`);
     if (!confirm) { console.log('\nRe-run with --confirm to execute. Nothing was downloaded.'); process.exit(0); }
     await run('ollama', ['pull', model]);
-    const shown = await exec('ollama', ['show', model], { encoding: 'utf8', timeout: 60_000, windowsHide: true });
-    const digest = `${shown.stdout}${shown.stderr}`.match(/sha256:[a-f0-9]{64}/i)?.[0];
-    if (!digest) throw new Error('model_digest_unavailable');
+    const digest = await installedModelDigest(process.env.OLLAMA_URL ?? 'http://127.0.0.1:11434', model);
     await writeFile('models.lock.json', `${JSON.stringify({ model, digest, recordedAt: new Date().toISOString() }, null, 2)}\n`, { mode: 0o600 });
     console.log(`Pulled ${model} and recorded immutable digest ${digest} in models.lock.json`);
 

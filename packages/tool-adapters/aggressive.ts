@@ -7,7 +7,9 @@ export interface AggressiveInput {
   n8nAttested: boolean;
   allowDestructive: boolean;
   env?: NodeJS.ProcessEnv;
-  exec: (bin: string, args: string[]) => Promise<{ stdout: string }>;
+  signal?: AbortSignal;
+  beforeExecution: () => Promise<void>;
+  exec: (bin: string, args: string[], signal?: AbortSignal) => Promise<{ stdout: string }>;
 }
 
 export interface NucleiFinding { template: string; location: string; severity: string }
@@ -58,13 +60,18 @@ export function parseNucleiJsonl(text: string): NucleiFinding[] {
 export async function runAggressive(input: AggressiveInput): Promise<AggressiveResult> {
   const decision = aggressivePreflight(input);
   if (!decision.ok) return { refused: decision.reason, executed: false, destructive: false, findings: [], audit: [] };
+  input.signal?.throwIfAborted();
+  await input.beforeExecution();
   const host = input.host.trim().toLowerCase();
   const invocation = resolveInvocation(NUCLEI, {
     url: `https://${host}`,
     destructive: decision.destructive ? 'true' : 'false',
     labAuthorized: 'true',
   }, input.env);
-  const result = await input.exec(invocation.bin, invocation.args);
+  input.signal?.throwIfAborted();
+  const result = await input.exec(invocation.bin, invocation.args, input.signal);
+  input.signal?.throwIfAborted();
+  await input.beforeExecution();
   const findings = parseNucleiJsonl(result.stdout);
   const audit = decision.destructive ? [{ event: 'AGGRESSIVE_DESTRUCTIVE' as const, host, recovery: 'qm rollback' as const }] : [];
   return { refused: null, executed: true, destructive: decision.destructive, findings, audit };
