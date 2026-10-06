@@ -25,6 +25,7 @@
     "posture:scan": "tsx scripts/posture-scan.ts",
     "coverage:report": "tsx scripts/coverage.ts",
     "gate": "tsx scripts/gate.ts",
+    "eval:model": "tsx scripts/eval-model.ts",
     "campaign": "tsx scripts/campaign.ts",
     "monitor": "tsx scripts/monitor.ts",
     "aggressive": "tsx scripts/aggressive.ts",
