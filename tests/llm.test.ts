@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { OllamaProvider, FixtureLLM } from '../packages/llm/index.js';
+import { OllamaProvider, FixtureLLM, installedModelDigest } from '../packages/llm/index.js';
 import { analyzeObservation, boundedObservation } from '../packages/agent-runtime/index.js';
 test('model endpoints must be local',()=>{
   for(const url of ['https://evil.test','http://localhost.evil.test','http://user:pass@localhost:11434','file:///tmp/model']) assert.throws(()=>new OllamaProvider(url,'configured'));
@@ -13,6 +13,16 @@ test('fixture analysis cannot claim a verified vulnerability',async()=>{
 
 const digestA = 'sha256:' + 'a'.repeat(64);
 const digestB = 'sha256:' + 'b'.repeat(64);
+test('an untagged model resolves only its latest entry', async () => {
+  const previous = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => new Response(JSON.stringify({ models: [
+      { name: 'example:latest', model: 'example:latest', digest: 'a'.repeat(64) },
+      { name: 'example:other', model: 'example:other', digest: 'b'.repeat(64) },
+    ] }))) as typeof fetch;
+    assert.equal(await installedModelDigest('http://127.0.0.1:11434', 'example'), digestA);
+  } finally { globalThis.fetch = previous; }
+});
 function fetchWithDigest(digest: string, chat: (input: unknown, init?: RequestInit) => Response | Promise<Response>) {
   return async (input: unknown, init?: RequestInit) => {
     if (String(input).endsWith('/api/tags')) {

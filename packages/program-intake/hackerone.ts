@@ -12,7 +12,25 @@ const MAX_TOTAL_BYTES = 4_194_304;
 const MAX_PAGES = 20;
 const HANDLE = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/;
 
-export type FetchLike = (url: string, init?: { method?: 'GET'; signal?: AbortSignal; redirect?: 'error'; headers?: Record<string, string> }) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
+export type FetchLike = (url: string, init?: { method?: 'GET'; signal?: AbortSignal; redirect?: 'error'; headers?: Record<string, string> }) => Promise<{ ok: boolean; status: number; text(): Promise<string>; body?: ReadableStream<Uint8Array> | null }>;
+
+export async function readIntakeText(response: Awaited<ReturnType<FetchLike>>, limit: number): Promise<string> {
+  if (!response.body) {
+    const text = await response.text();
+    if (Buffer.byteLength(text) > limit) throw new Error('program_response_too_large');
+    return text;
+  }
+  const reader = response.body.getReader(); const chunks: Buffer[] = []; let bytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read(); if (done) break;
+      bytes += value.byteLength;
+      if (bytes > limit) throw new Error('program_response_too_large');
+      chunks.push(Buffer.from(value));
+    }
+    return Buffer.concat(chunks, bytes).toString('utf8');
+  } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+}
 
 export interface FetchProgramOptions {
   authorization?: string;
@@ -159,7 +177,7 @@ async function getJson(fetchLike: FetchLike, url: string, handle: string, kind: 
   const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs)]) : AbortSignal.timeout(options.timeoutMs);
   const response = await fetchLike(pinned, { method: 'GET', signal, redirect: 'error', headers });
   if (!response.ok) throw new Error(`program_http_${response.status}`);
-  const text = await response.text();
+  const text = await readIntakeText(response, MAX_RESPONSE_BYTES);
   const size = Buffer.byteLength(text);
   if (size > MAX_RESPONSE_BYTES) throw new Error('program_response_too_large');
   total.bytes += size;

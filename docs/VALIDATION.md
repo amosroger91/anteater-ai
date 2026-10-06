@@ -1,5 +1,13 @@
 # Initial milestone validation — 2026-10-02
 
+## Review fixes and company importer — 2026-10-06
+
+TypeScript `tsc --noEmit` is the allowed static check for this change. No unit/integration/browser tests, fixture runs, model inference, platform API calls using credentials, or research scans were run in this session, per the user's instruction. Added regression sources cover company pagination and confirmation, excluded selections, cleanup request reservation/deadline/owner behavior, accepted negative controls, and asset identity. Earlier results below describe earlier commits and are not a pass for the current changes.
+
+The October 5 execution/setup/model work was preserved from the intervening commits. The remaining asset-planner wiring and application cleanup-recovery hooks were completed here alongside the scanner importer. Runtime recovery and real API behavior still need independent validation when tests are authorized.
+
+## Initial milestone record
+
 - `npm run check`: TypeScript build and 59 unit tests passed.
 - `npm run verify:local`: 9 reported integration tests (including the parent test) passed against native PostgreSQL 17; fixture demonstration and deduplicated replay passed.
 - Verified lease fencing, expiry recovery, bounded retries, policy-revision invalidation, concurrent claims, rate reservation, invocation-time scope changes, kill switch, rejected arbitrary tools, tool-only observations, structured model grounding, Markdown export and operator-note preservation.

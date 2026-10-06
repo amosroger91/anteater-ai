@@ -5,7 +5,7 @@ import { BrowserSession, launchResearchBrowser } from './browser.js';
 import { RequestGate, type Exchange } from './transport.js';
 import { ApplicationSchema, type Application } from './profile.js';
 import { imapVerifier, type VerifyMailbox } from './mailbox.js';
-import { verifyOwnership } from './verification.js';
+import { recoverOwnershipCleanup, verifyOwnership } from './verification.js';
 import type { CleanupJournal } from './cleanup.js';
 import { guardModelContext } from '../inert/index.js';
 
@@ -15,7 +15,7 @@ export async function researchApplication(origin: string, rawApp: Application, c
   const app = ApplicationSchema.parse(rawApp);
   const deadline = AbortSignal.timeout(app.maxDurationSeconds * 1000);
   const signal = parentSignal ? AbortSignal.any([parentSignal, deadline]) : deadline;
-  const gate = new RequestGate(origin, app, signal, beforeRequest, deps.exchange, config.ALLOW_ACTIVE_TESTING);
+  const gate = new RequestGate(origin, app, signal, beforeRequest, deps.exchange, config.ALLOW_ACTIVE_TESTING, parentSignal);
   const env = deps.env ?? process.env;
   const gaps: string[] = [];
   const coverage: SessionCoverage[] = [];
@@ -23,7 +23,9 @@ export async function researchApplication(origin: string, rawApp: Application, c
   const browser = deps.browser ?? await launchResearchBrowser();
   const sessions: BrowserSession[] = [];
   const close = () => { for (const session of sessions) void session.close(); };
-  signal.addEventListener('abort', close, { once: true });
+  // Keep authenticated cookies available for bounded cleanup after the assessment deadline.
+  // Fleet cancellation still closes every context immediately.
+  parentSignal?.addEventListener('abort', close, { once: true });
   let findings: Awaited<ReturnType<typeof verifyOwnership>> = [];
   const auth = app.auth;
   const store = config.ACCOUNT_KEY ? new AccountStore(config.CREDENTIAL_STORE, config.ACCOUNT_KEY) : undefined;
@@ -87,27 +89,32 @@ export async function researchApplication(origin: string, rawApp: Application, c
           account.registration = 'verified';
           if (store && !auth.accounts.some(entry => entry.id === account.id)) await store.put(new URL(origin).hostname, account);
           coverage.push({ id: account.id, status: 'authenticated', identityValidated: Boolean(auth.sessionPath) });
-          session.purpose = 'discover'; await session.crawl(origin + '/', app);
+          session.purpose = 'discover';
           if (auth.sessionPath) authenticated.push(session);
         }
       } catch { coverage.push({ id: account.id, status: 'unavailable', reason: 'authentication_failed', identityValidated: false }); }
     }
-    findings = await verifyOwnership(app, authenticated, gaps, deps.cleanupJournal);
+    const recovered = await recoverOwnershipCleanup(app, origin, authenticated, gaps, deps.cleanupJournal);
+    if (recovered) findings = await verifyOwnership(app, authenticated, gaps, deps.cleanupJournal);
+    for (const session of authenticated) await session.crawl(origin + '/', app);
     if (sessions.some(session => session.fatal === 'kill_switch')) throw new Error('kill_switch');
   } catch (error) {
     if (parentSignal?.aborted || (error instanceof Error && error.message === 'kill_switch')) throw error;
     gaps.push(deadline.aborted ? 'assessment_deadline' : 'assessment_interrupted');
   } finally {
-    signal.removeEventListener('abort', close);
+    parentSignal?.removeEventListener('abort', close);
     await Promise.allSettled(sessions.map(session => session.close()));
     if (!deps.browser) await browser.close();
   }
   const redact = (value: string) => guardModelContext(value).redacted;
   const inventory = sessions.flatMap(session => session.inventory.map(page => ({ session: session.id, url: redact(page.url), title: redact(page.title), links: page.links.map(redact), forms: page.forms.map(form => ({ ...form, action: redact(form.action) })) })));
   const errors = [...new Set(sessions.flatMap(session => session.errors))];
+  for (const entry of auth.accounts) {
+    if (!coverage.some(row => row.id === entry.id && row.status === 'authenticated' && row.identityValidated)) gaps.push(`account_unavailable:${entry.id}`);
+  }
   const report = { kind: 'OBSERVATION', executor: 'application-browser', target: origin,
     coverage: { sessions: coverage, pages: inventory.length, requests: gate.count, blocked: gate.blocked, gaps: [...new Set(gaps)], errors,
-      complete: !gaps.length && !errors.length && !Object.keys(gate.blocked).length }, inventory, endpoints: gate.endpoints, findings,
+      complete: !gaps.length && !errors.length && !Object.keys(gate.blocked).length && !coverage.some(row => row.status === 'unavailable' || row.status === 'unreachable') }, inventory, endpoints: gate.endpoints, findings,
     signals: findings.map(finding => ({ code: finding.code, severity: finding.severity, detail: `Reproduced under rule ${finding.rule}; awaiting human review` })) };
   // Remove exact credential values even if the application echoes them in titles or URLs.
   let serialized = JSON.stringify(report);

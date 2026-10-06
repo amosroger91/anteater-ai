@@ -27,6 +27,16 @@
     th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #1d1a16; vertical-align: top; }
     footer { max-width: 48rem; margin: 0 auto; padding: 0 20px 28px; }
     footer a { color: #1d1a16; }
+    [hidden] { display: none !important; }
+    input[type=search], input[type=text] { width: 100%; padding: 10px; font: inherit; margin: 8px 0 12px; border: 1px solid #79736a; }
+    input[type=checkbox] { width: 20px; height: 20px; flex: 0 0 auto; accent-color: #1d1a16; }
+    .company-choice { display: flex; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid #ded8ce; }
+    #company-list { max-height: 26rem; overflow-y: auto; }
+    #company-scopes { max-height: 34rem; overflow-y: auto; }
+    #company-scopes details { margin: 12px 0; border: 1px solid #ded8ce; padding: 12px; }
+    #company-scopes pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 14px; }
+    .company-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+    #company-status { min-height: 1.5em; }
   </style>
 </head>
 <body>
@@ -36,6 +46,30 @@
   </header>
   <main>
     <div id="error" class="error" hidden></div>
+    <section aria-labelledby="company-title">
+      <div class="row"><h2 id="company-title">Company scope</h2><button id="fetch-companies" type="button">Fetch companies from HackerOne</button></div>
+      <p class="help">Fetch programs available to your HackerOne account using the credentials saved in setup. Select companies, review their published scope, then confirm which may be added.</p>
+      <p id="company-status" role="status" aria-live="polite"></p>
+      <button class="secondary" id="refresh-company-status" type="button" hidden>Refresh import status</button>
+      <div id="company-selection" hidden>
+        <label for="company-search">Find a company</label><input id="company-search" type="search" placeholder="Company name or handle">
+        <div class="company-actions"><button class="secondary" id="select-companies" type="button">Select all</button><button class="secondary" id="clear-companies" type="button">Deselect all</button><span id="company-count"></span></div>
+        <div id="company-list"></div>
+        <p class="help">Unchecked companies are left out of this import. Existing approved scope is retained.</p>
+        <label for="scope-approver">Your name for the scope approval</label><input id="scope-approver" type="text" autocomplete="name" minlength="2" maxlength="200">
+        <button id="review-companies" type="button">Review selected scope</button>
+      </div>
+      <div id="company-review" hidden tabindex="-1">
+        <h3>Confirm scope permission</h3>
+        <p>Review the companies, allowed assets, exclusions, request limits, and program instructions below. This adds approved scope to Anteater for seven days. It does not start a scan or change the kill switch.</p>
+        <div id="company-scopes"></div>
+        <p id="company-skipped"></p>
+        <label class="company-choice"><input id="scope-consent" type="checkbox"><span>I have permission to add these companies and authorize only the displayed scope, subject to each program's restrictions.</span></label>
+        <div class="company-actions"><button class="secondary" id="back-companies" type="button">Back to selection</button><button id="confirm-companies" type="button" disabled>Confirm and add scope</button></div>
+      </div>
+      <button class="secondary" id="cancel-companies" type="button" hidden>Cancel import</button>
+      <details><summary>Companies already in scope</summary><p id="saved-company-scope">Loading saved scope…</p></details>
+    </section>
     <section>
       <h2>Saved hosts</h2>
       <p id="private" class="help"></p>
@@ -174,6 +208,132 @@
     }
     document.querySelector('#fixture').addEventListener('click', runFixture);
     fetch('/api/status').then(response => response.json()).then(renderHosts).catch(() => showError('Saved setup could not be read.'));
+  </script>
+  <script>
+    const companyUI = id => document.getElementById(id);
+    let importId = '', importState, companySelection = new Set(), pollTimer;
+    let lastRenderedPhase = '';
+    const importErrors = {
+      hackerone_credentials_required: 'Save your HackerOne username and API token in setup first.',
+      program_http_401: 'HackerOne rejected the credentials. Check them in setup.',
+      program_http_403: 'The HackerOne account cannot access this directory or program.',
+      program_http_429: 'HackerOne rate-limited the import. Wait before fetching again.',
+      import_expired: 'This review expired. Fetch the companies again to review fresh scope.',
+      company_import_failed: 'The import could not finish. Check the API connection and database configuration.',
+      scope_snapshot_too_large: 'This selection is too large to review at once. Import fewer companies per batch.',
+      manual_only: 'The program has not explicitly permitted automation.',
+    };
+    function importError(error) { return importErrors[error] || String(error || 'company_import_failed').replaceAll('_', ' '); }
+    async function importRequest(action, body) {
+      const response = await fetch('/api/companies/' + action, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(importError(result.error));
+      return result;
+    }
+    function selectionCount() {
+      companyUI('company-count').textContent = companySelection.size + ' of ' + (importState?.companies.length || 0) + ' selected';
+      companyUI('review-companies').disabled = !companySelection.size || companyUI('scope-approver').value.trim().length < 2;
+    }
+    function renderCompanyList() {
+      const filter = companyUI('company-search').value.trim().toLowerCase();
+      const fragment = document.createDocumentFragment();
+      for (const company of importState.companies) {
+        if (!(company.name + ' ' + company.handle).toLowerCase().includes(filter)) continue;
+        const label = document.createElement('label'); label.className = 'company-choice';
+        const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.checked = companySelection.has(company.handle);
+        checkbox.addEventListener('change', () => { if (checkbox.checked) companySelection.add(company.handle); else companySelection.delete(company.handle); selectionCount(); });
+        const text = document.createElement('span'); text.textContent = company.name + ' (@' + company.handle + ') — ' + company.submissionState;
+        label.append(checkbox, text); fragment.append(label);
+      }
+      companyUI('company-list').replaceChildren(fragment); selectionCount();
+    }
+    function renderScopeReview(state) {
+      companyUI('company-selection').hidden = true; companyUI('company-review').hidden = false;
+      companyUI('scope-consent').checked = false; companyUI('confirm-companies').disabled = true;
+      const fragment = document.createDocumentFragment();
+      for (const scope of state.scopes) {
+        const details = document.createElement('details'); const title = document.createElement('summary');
+        title.textContent = scope.name + ' — ' + scope.assets.length + ' current web assets'; details.append(title);
+        const text = document.createElement('pre');
+        text.textContent = 'Allowed: ' + scope.allowed.join(', ') + '\nExcluded: ' + (scope.excluded.join(', ') || 'None listed') +
+          '\nCurrent assets: ' + scope.assets.join(', ') + '\nApproved paths: ' + scope.paths.join(', ') +
+          '\nActions: ' + scope.actions.join(', ') + '\nLimit: ' + scope.rate + ' requests/second\n\nProgram policy:\n' + scope.policy +
+          (scope.instructions.length ? '\n\nAsset instructions:\n' + scope.instructions.join('\n\n') : '');
+        const link = document.createElement('a'); link.href = scope.url; link.textContent = 'Open program policy'; link.target = '_blank'; link.rel = 'noopener noreferrer';
+        details.append(text, link); fragment.append(details);
+      }
+      companyUI('company-scopes').replaceChildren(fragment);
+      companyUI('company-skipped').textContent = state.skipped.length ? 'Excluded from import: ' + state.skipped.map(item => item.handle + ' (' + importError(item.reason) + ')').join('; ') : 'No selected companies were excluded.';
+      companyUI('company-status').textContent = state.scopes.length + ' companies ready for approval by ' + state.approver + '. Permission expires after seven days.';
+      companyUI('company-review').focus();
+    }
+    async function pollCompanies() {
+      try {
+        const response = await fetch('/api/companies/status?id=' + encodeURIComponent(importId));
+        const state = await response.json(); if (!response.ok) throw new Error(importError(state.error));
+        importState = state;
+        companyUI('refresh-company-status').hidden = true;
+        const busy = ['fetching', 'preparing', 'saving'].includes(state.phase);
+        companyUI('fetch-companies').disabled = busy;
+        companyUI('cancel-companies').hidden = !['fetching', 'preparing', 'select', 'review'].includes(state.phase);
+        if (busy) {
+          const label = { fetching: 'Fetching companies', preparing: 'Reading policies and scope', saving: 'Adding approved scope' }[state.phase];
+          companyUI('company-status').textContent = label + ': ' + state.progress + (state.total ? ' / ' + state.total : '') + '…';
+          pollTimer = setTimeout(pollCompanies, 1000);
+        } else if (state.phase === 'select' && lastRenderedPhase !== 'select') {
+          companySelection = new Set(state.companies.map(company => company.handle));
+          companyUI('company-selection').hidden = false; renderCompanyList();
+          companyUI('company-status').textContent = state.companies.length + ' companies fetched. All are selected; uncheck any you want to exclude.';
+        } else if (state.phase === 'review' && lastRenderedPhase !== 'review') renderScopeReview(state);
+        else if (state.phase === 'done') {
+          loadSavedCompanyScope();
+          companyUI('company-review').hidden = true;
+          companyUI('company-status').textContent = 'Added ' + state.imported.length + ' companies to scope: ' + (state.imported.join(', ') || 'none') +
+            '. No scan was started.' + (state.skipped.length ? ' Not added: ' + state.skipped.map(item => item.handle + ' (' + importError(item.reason) + ')').join('; ') : '');
+        } else if (['failed', 'cancelled'].includes(state.phase)) {
+          companyUI('company-selection').hidden = true; companyUI('company-review').hidden = true;
+          companyUI('company-status').textContent = importError(state.error || 'import_cancelled') + (state.imported.length ? '. Already added: ' + state.imported.join(', ') : '. Nothing was added.');
+        }
+        lastRenderedPhase = state.phase;
+      } catch (error) {
+        companyUI('company-status').textContent = error.message + ' Refresh status before retrying an approval.';
+        companyUI('fetch-companies').disabled = false;
+        companyUI('refresh-company-status').hidden = false;
+      }
+    }
+    async function startCompanyAction(action, body) {
+      companyUI('review-companies').disabled = true;
+      companyUI('confirm-companies').disabled = true;
+      try {
+        clearTimeout(pollTimer); const result = await importRequest(action, body); importId = result.id; lastRenderedPhase = '';
+        companyUI('company-selection').hidden = true; companyUI('company-review').hidden = true; await pollCompanies();
+      } catch (error) {
+        companyUI('company-status').textContent = error.message; companyUI('fetch-companies').disabled = false;
+        selectionCount();
+        companyUI('confirm-companies').disabled = !companyUI('scope-consent').checked || !importState?.scopes.length;
+      }
+    }
+    companyUI('fetch-companies').addEventListener('click', () => { companyUI('fetch-companies').disabled = true; startCompanyAction('fetch', {}); });
+    companyUI('company-search').addEventListener('input', renderCompanyList);
+    companyUI('scope-approver').addEventListener('input', selectionCount);
+    companyUI('select-companies').addEventListener('click', () => { companySelection = new Set(importState.companies.map(company => company.handle)); renderCompanyList(); });
+    companyUI('clear-companies').addEventListener('click', () => { companySelection.clear(); renderCompanyList(); });
+    companyUI('review-companies').addEventListener('click', () => startCompanyAction('preview', { id: importId, handles: [...companySelection], approver: companyUI('scope-approver').value.trim() }));
+    companyUI('back-companies').addEventListener('click', () => { companyUI('company-review').hidden = true; companyUI('company-selection').hidden = false; renderCompanyList(); });
+    companyUI('scope-consent').addEventListener('change', () => { companyUI('confirm-companies').disabled = !companyUI('scope-consent').checked || !importState.scopes.length; });
+    companyUI('confirm-companies').addEventListener('click', () => startCompanyAction('confirm', { id: importId, approved: companyUI('scope-consent').checked }));
+    companyUI('cancel-companies').addEventListener('click', () => startCompanyAction('cancel', { id: importId }));
+    companyUI('refresh-company-status').addEventListener('click', () => { clearTimeout(pollTimer); pollCompanies(); });
+    async function loadSavedCompanyScope() {
+      try {
+        const response = await fetch('/api/companies/scope'); const result = await response.json();
+        if (!response.ok) throw new Error('scope_unavailable');
+        companyUI('saved-company-scope').textContent = result.companies.length ? result.companies.map(company =>
+          company.name + ' — ' + company.allowed.join(', ') + ' (expires ' + new Date(company.expires_at).toLocaleString() + ')').join('; ') : 'No HackerOne companies are in scope yet.';
+      } catch { companyUI('saved-company-scope').textContent = 'Saved scope is unavailable. A configured, migrated PostgreSQL database is required to add companies.'; }
+    }
+    loadSavedCompanyScope();
+    fetch('/api/status').then(response => response.json()).then(status => { companyUI('scope-approver').value = status.approver || ''; selectionCount(); }).catch(() => {});
   </script>
 </body>
 </html>

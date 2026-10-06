@@ -6,6 +6,7 @@ import type { FileSetupStore } from '../../packages/setup/store.js';
 import { publicFixtureScan, runLocalFixtureScan } from '../orchestrator/fixture-campaign.js';
 import { scanSavedLab } from './lab-scan.js';
 import type { PassiveDeps } from '../../packages/web-executor/index.js';
+import { CompanyImportService, type CompanyImportDeps } from './company-import.js';
 
 const page = readFileSync(new URL('./index.html', import.meta.url), 'utf8');
 const scanner = readFileSync(new URL('./run.html', import.meta.url), 'utf8');
@@ -31,23 +32,48 @@ function send(response: ServerResponse, status: number, body: unknown, type = 'a
   response.end(payload);
 }
 
-async function readBody(request: IncomingMessage): Promise<string> {
+async function readBody(request: IncomingMessage, limit = MAX_BODY): Promise<string> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += buffer.length;
-    if (size > MAX_BODY) throw new Error('setup_too_large');
+    if (size > limit) throw new Error('setup_too_large');
     chunks.push(buffer);
   }
   return Buffer.concat(chunks).toString('utf8');
 }
 
-export function createSetupServer(store: SetupStore, options: { labDeps?: PassiveDeps } = {}) {
+export function createSetupServer(store: SetupStore, options: { labDeps?: PassiveDeps; companyImport?: CompanyImportDeps } = {}) {
+  const companies = new CompanyImportService(() => store.read() ?? blankProfile(), options.companyImport);
   return createServer(async (request, response) => {
     try {
       if (!loopback(request)) { send(response, 403, { error: 'loopback_only' }); return; }
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+      if (url.pathname.startsWith('/api/companies/')) {
+        const expectedHost = `127.0.0.1:${request.socket.localPort}`;
+        if (request.headers.host !== expectedHost || (request.method !== 'GET' && request.headers.origin !== `http://${expectedHost}`)) {
+          send(response, 403, { error: 'origin_rejected' }); return;
+        }
+        if (request.method === 'GET' && url.pathname === '/api/companies/status') {
+          send(response, 200, companies.status(url.searchParams.get('id') ?? '')); return;
+        }
+        if (request.method === 'GET' && url.pathname === '/api/companies/scope') {
+          send(response, 200, { companies: await companies.savedScope() }); return;
+        }
+        if (request.method !== 'POST' || !request.headers['content-type']?.includes('application/json')) {
+          send(response, 405, { error: 'json_post_required' }); return;
+        }
+        const body: unknown = JSON.parse(await readBody(request, 1_048_576));
+        if (url.pathname === '/api/companies/fetch') send(response, 202, companies.fetch());
+        else if (url.pathname === '/api/companies/preview') send(response, 202, companies.preview(body));
+        else if (url.pathname === '/api/companies/confirm') send(response, 202, companies.confirm(body));
+        else if (url.pathname === '/api/companies/cancel') {
+          const id = body && typeof body === 'object' && 'id' in body ? body.id : '';
+          send(response, 200, companies.cancel(typeof id === 'string' ? id : ''));
+        } else send(response, 404, { error: 'not_found' });
+        return;
+      }
       if (request.method === 'GET' && url.pathname === '/') { send(response, 200, page, 'text/html'); return; }
       if (request.method === 'GET' && url.pathname === '/run') { send(response, 200, scanner, 'text/html'); return; }
       if (request.method === 'POST' && url.pathname === '/api/scan/lab') {

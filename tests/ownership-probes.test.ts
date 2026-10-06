@@ -7,9 +7,10 @@ import type { IncomingHttpHeaders } from 'node:http';
 import { AccountStore, publicAccountLabel } from '../packages/application-research/accounts.js';
 import { ApplicationSchema, AuthSchema } from '../packages/application-research/profile.js';
 import { RequestGate } from '../packages/application-research/transport.js';
-import { verifyOwnership, type OwnershipSession } from '../packages/application-research/verification.js';
+import { recoverOwnershipCleanup, verifyOwnership, type OwnershipSession } from '../packages/application-research/verification.js';
 import { findCrossRoleReads, ownershipRoster, routesFromResources } from '../packages/authz/index.js';
 import { startResearchLab } from '../fixtures/research-lab.js';
+import type { CleanupJournal } from '../packages/application-research/cleanup.js';
 
 const account = (id: string, role: 'user' | 'admin', tenant: string) => ({
   id, usernameEnv: `LAB_USER_${id.toUpperCase()}`, passwordEnv: `LAB_PASS_${id.toUpperCase()}`, role, tenant,
@@ -57,6 +58,74 @@ function sessionCookie(headers: IncomingHttpHeaders): string {
   if (!match?.[1]) throw new Error('no_session');
   return `session=${match[1]}`;
 }
+
+test('verification reserves cleanup and carries a 403 negative control into replay', async () => {
+  for (const maxRequests of [10, 11]) {
+    const app = ApplicationSchema.parse({ ...profile, maxRequests });
+    const lab = await startResearchLab({ vulnerable: true });
+    try {
+      const a = await login(lab, 'alice@example.test', 'alice-password');
+      const b = await login(lab, 'bob@example.test', 'bob-password');
+      const gate = new RequestGate('https://lab.example.test', app, new AbortController().signal, async () => {}, async request => {
+        const response = await lab.exchange(request);
+        return request.url.pathname.includes('/missing-') ? { ...response, status: 403 } : response;
+      }, true);
+      const gaps: string[] = [];
+      const found = await verifyOwnership(app, [boundSession('a', a, gate), boundSession('b', b, gate)], gaps);
+      assert.equal(lab.records.size, 0);
+      if (maxRequests === 10) {
+        assert.equal(gate.count, 0); assert.ok(gaps.includes('verification_budget_exhausted'));
+      } else {
+        assert.equal(gate.count, 11); assert.equal(found.length, 2); assert.ok(!gaps.includes('cleanup_failed'));
+      }
+    } finally { await lab.close(); }
+  }
+});
+
+test('a missing ordinary peer cannot be replaced with the administrator', async () => {
+  const app = ApplicationSchema.parse(profile);
+  const gate = new RequestGate('https://lab.example.test', app, new AbortController().signal, async () => {}, async () => { throw new Error('unexpected_request'); }, true);
+  const gaps: string[] = [];
+  const found = await verifyOwnership(app, [boundSession('a', '', gate), boundSession('c', '', gate)], gaps);
+  assert.deepEqual(found, []); assert.equal(gate.count, 0);
+  assert.ok(gaps.includes('ownership_checks_require_two_identity_validated_accounts'));
+});
+
+test('reserved cleanup survives assessment expiry but never parent cancellation', async () => {
+  const app = ApplicationSchema.parse(profile);
+  const deadline = new AbortController(); const parent = new AbortController();
+  const cleanup = 'https://lab.example.test/api/documents/by-marker/anteater-owned-' + 'a'.repeat(32);
+  let calls = 0;
+  const gate = new RequestGate('https://lab.example.test', app, deadline.signal, async () => {}, async request => {
+    await request.beforeConnect(); calls++;
+    return { status: 204, headers: {}, body: Buffer.alloc(0), truncated: false };
+  }, true, parent.signal);
+  assert.equal(gate.reserveCleanup(cleanup), true); deadline.abort(new Error('assessment_deadline'));
+  await assert.rejects(gate.send('a', 'discover', 'https://lab.example.test/'), /assessment_deadline/);
+  await gate.send('a', 'cleanup', cleanup, 'DELETE'); assert.equal(calls, 1);
+  assert.equal(gate.reserveCleanup(cleanup), true); parent.abort(new Error('kill_switch'));
+  await assert.rejects(gate.send('a', 'cleanup', cleanup, 'DELETE'), /kill_switch/);
+  assert.equal(calls, 1);
+});
+
+test('pending cleanup is acknowledged only by its owner under the same policy', async () => {
+  const app = ApplicationSchema.parse(profile);
+  const marker = 'anteater-owned-' + 'a'.repeat(32);
+  const cleanupUrl = 'https://lab.example.test/api/documents/by-marker/' + marker;
+  const completed: string[] = [];
+  const journal: CleanupJournal = {
+    policyRevision: 'same', prepare: async () => 'new', complete: async id => { completed.push(id); },
+    pending: async () => [{ id: 'pending', origin: 'https://lab.example.test', ownerId: 'a', marker, cleanupUrl, policyRevision: 'same' }],
+  };
+  const gate = new RequestGate('https://lab.example.test', app, new AbortController().signal, async () => {}, async () => ({
+    status: 204, headers: {}, body: Buffer.alloc(0), truncated: false,
+  }), true);
+  const gaps: string[] = [];
+  assert.equal(await recoverOwnershipCleanup(app, gate.origin, [boundSession('b', '', gate)], gaps, journal), false);
+  assert.deepEqual(completed, []); assert.ok(gaps.includes('cleanup_owner_unavailable'));
+  assert.equal(await recoverOwnershipCleanup(app, gate.origin, [boundSession('a', '', gate)], [], journal), true);
+  assert.deepEqual(completed, ['pending']);
+});
 
 async function login(lab: Awaited<ReturnType<typeof startResearchLab>>, email: string, password: string) {
   const response = await lab.exchange({

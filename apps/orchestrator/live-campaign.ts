@@ -4,7 +4,9 @@ import { candidateJobs, type JobSpec } from '../../packages/discovery/enqueue.js
 import { coverageReport, type CoverageSummary, type ScanResult } from '../../packages/coverage/index.js';
 import type { Responder, State } from '../../packages/findings/index.js';
 import { remediationFor } from '../../packages/remediation/index.js';
-import type { Action } from '../../packages/scope-engine/index.js';
+import { PolicySchema, type Action } from '../../packages/scope-engine/index.js';
+export { assetIdForHost } from '../../packages/shared/asset-id.js';
+import { assetIdForHost } from '../../packages/shared/asset-id.js';
 import { ProgramSchema, type Program } from '../../packages/bounty-providers/index.js';
 import { saveProgram } from '../../packages/research-state/workspace.js';
 import { Jobs, recordCampaignCoverage, recordReplay } from '../../packages/research-state/jobs.js';
@@ -16,12 +18,6 @@ import type { Config } from '../../packages/shared/config.js';
 // coverage, and remediation stay the pure composition in campaign.ts. This file adds the queue:
 // admitted hosts become assets, Jobs enqueues them, and ToolGateway runs the existing worker
 // tools. Held hosts are not saved and not enqueued. A model does not choose the target or action.
-
-export function assetIdForHost(host: string): string {
-  const id = host.toLowerCase().replaceAll('.', '-');
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) throw new Error('invalid_asset_id');
-  return id;
-}
 
 export interface LiveCampaignPlan {
   admitted: string[];
@@ -39,7 +35,8 @@ export async function planLiveCampaign(input: {
 }): Promise<LiveCampaignPlan> {
   const { admitted, held } = await discoverAndPartition(input.discovery, input.roots, input.policy, input.action);
   const jobs = candidateJobs(admitted.map(row => row.candidate), input.policy, input.action, input.revision);
-  const assets = jobs.map(job => ({ id: assetIdForHost(job.host), url: `https://${job.host}`, host: job.host }));
+  const programId = PolicySchema.parse(input.policy).programId;
+  const assets = jobs.map(job => ({ id: assetIdForHost(job.host, programId), url: `https://${job.host}`, host: job.host }));
   return {
     admitted: admitted.map(row => row.candidate.host),
     held: held.map(row => row.candidate.host),

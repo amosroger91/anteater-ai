@@ -41,6 +41,8 @@ export function normalizeModelDigest(value: string): string | undefined {
 // digests; match one exact reference so a similarly named model cannot satisfy a pin.
 export async function installedModelDigest(baseUrl: string, model: string): Promise<string> {
   validateModelEndpoint(baseUrl, model);
+  const reference = (value: string) => value.slice(value.lastIndexOf('/') + 1).includes(':') ? value : `${value}:latest`;
+  const expected = reference(model);
   let response: Response;
   try {
     response = await fetch(new URL('/api/tags', baseUrl), {
@@ -52,10 +54,10 @@ export async function installedModelDigest(baseUrl: string, model: string): Prom
     name: z.string(), model: z.string().optional(), digest: z.string(),
   }).passthrough()).max(10000) }).passthrough().safeParse(await response.json().catch(() => null));
   if (!parsed.success) throw new Error('model_digest_unavailable');
-  const matches = parsed.data.models.filter(entry => entry.name === model || entry.model === model);
+  const matches = parsed.data.models.filter(entry => reference(entry.name) === expected || (entry.model !== undefined && reference(entry.model) === expected));
   if (matches.length !== 1) throw new Error('model_digest_unavailable');
   const match = matches[0]!;
-  if (match.name !== model || (match.model !== undefined && match.model !== model)) throw new Error('model_digest_unavailable');
+  if (reference(match.name) !== expected || (match.model !== undefined && reference(match.model) !== expected)) throw new Error('model_digest_unavailable');
   const digest = normalizeModelDigest(match.digest);
   if (!digest) throw new Error('model_digest_unavailable');
   return digest;

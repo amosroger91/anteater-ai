@@ -21,9 +21,9 @@ test('live campaign planning admits only the reviewed host and mints a stable as
   assert.ok(plan.held.includes('secret.anteater.test') && plan.held.includes('leak.vendor.test'));
   assert.equal(plan.jobs.length, 1);
   assert.equal(plan.assets.length, 1);
-  assert.equal(plan.assets[0]?.id, 'lab-vuln-anteater-test');
+  assert.equal(plan.assets[0]?.id, assetIdForHost('lab-vuln.anteater.test', 'lab-staging'));
   assert.equal(plan.assets[0]?.url, 'https://lab-vuln.anteater.test');
-  assert.equal(assetIdForHost('lab-vuln.anteater.test'), 'lab-vuln-anteater-test');
+  assert.notEqual(assetIdForHost('a.b-c.test', 'lab-staging'), assetIdForHost('a-b.c.test', 'lab-staging'));
   assert.ok(plan.jobs[0]?.dedupeKey.startsWith('lab-r1:lab-vuln.anteater.test:'));
 });
 

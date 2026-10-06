@@ -27,6 +27,12 @@ export async function saveProgram(pool: pg.Pool, program: Program, intake?: Prog
   }
   await transaction(pool, async c => {
     await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`program:${program.id}`]);
+    if (intake) {
+      const prior = (await c.query('SELECT platform,platform_handle FROM programs WHERE id=$1', [program.id])).rows[0];
+      if (prior && (prior.platform !== program.platform || (prior.platform_handle && prior.platform_handle !== intake.platformHandle))) {
+        throw new Error('program_identity_collision');
+      }
+    }
     // Preserve foreign-key identity when a newer importer generates a different
     // ID for a known origin. Callers enqueue the returned, persisted identities.
     const existing = await c.query('SELECT id,url FROM assets WHERE program_id=$1', [program.id]);

@@ -16,7 +16,7 @@ import { remediationFor } from '../../packages/remediation/index.js';
 import type { PassiveDeps } from '../../packages/web-executor/index.js';
 import type { Responder } from '../../packages/findings/index.js';
 import { FixtureDiscovery } from '../../packages/discovery/index.js';
-import { runLiveCampaign } from '../../apps/orchestrator/live-campaign.js';
+import { runLiveCampaign, assetIdForHost } from '../../apps/orchestrator/live-campaign.js';
 
 const LAB_IDOR_CONTRACT = {
   findingType: 'cross_account_read',
@@ -176,7 +176,7 @@ test('staging loop discovers the owned lab, replays the seeded IDOR, and submits
     assert.deepEqual(result.admitted, ['lab-vuln.anteater.test']);
     assert.ok(result.held.includes('leak.vendor.test') && result.held.includes('secret.anteater.test'));
     const assets = await pool.query('SELECT id, url FROM assets WHERE active=true ORDER BY id');
-    assert.deepEqual(assets.rows, [{ id: 'lab-vuln-anteater-test', url: 'https://lab-vuln.anteater.test' }]);
+    assert.deepEqual(assets.rows, [{ id: assetIdForHost('lab-vuln.anteater.test', 'lab-staging'), url: 'https://lab-vuln.anteater.test' }]);
     assert.equal((await pool.query("SELECT count(*)::int AS n FROM research_jobs WHERE status='completed'")).rows[0].n, 1);
     assert.equal(passive.options()?.host, '93.184.216.34');
     assert.ok(passive.paths.length > 0);
