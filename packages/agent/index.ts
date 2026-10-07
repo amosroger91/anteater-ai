@@ -111,6 +111,18 @@ export function researchCatalog(): AgentActionDef[] {
   ];
 }
 
+// Active-probe catalog (injection suite). Offered to the planner only when ALLOW_ACTIVE_TESTING is on;
+// the gateway still gates each probe by scope + the runtime flag, and only reviewed parameterized
+// endpoints are actually probed. These map to the scope engine's ACTIVE_ACTIONS.
+export function exploitCatalog(): AgentActionDef[] {
+  return [
+    { id: 'sqli', action: 'probe_sqli', description: 'test reviewed parameterized endpoints for SQL injection (boolean/error oracle)' },
+    { id: 'xss', action: 'probe_xss', description: 'test reviewed parameterized endpoints for reflected cross-site scripting' },
+    { id: 'redirect', action: 'probe_redirect', description: 'test reviewed parameters for open redirect to an attacker host' },
+    { id: 'ssrf', action: 'probe_ssrf', description: 'test reviewed parameters for server-side request forgery (out-of-band)' },
+  ];
+}
+
 const FollowSchema = z.object({ actionIds: z.array(z.string().min(1).max(80)).max(8) }).strict();
 const FOLLOW_JSON_SCHEMA = z.toJSONSchema(FollowSchema);
 

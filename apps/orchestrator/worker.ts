@@ -8,7 +8,7 @@ import { ToolGateway } from '../../packages/mcp/index.js';
 import { FileProgramProvider, FixtureProvider } from '../../packages/bounty-providers/index.js';
 import { FixtureLLM, OllamaProvider, type LLMProvider } from '../../packages/llm/index.js';
 import { analyzeObservation, analysisPromptHash, boundedObservation } from '../../packages/agent-runtime/index.js';
-import { planFollowUps } from '../../packages/agent/index.js';
+import { planFollowUps, researchCatalog, exploitCatalog } from '../../packages/agent/index.js';
 import { loadCampaign } from '../../packages/application-research/intake.js';
 import { executeLeasedJob } from '../../packages/research-state/execution.js';
 
@@ -61,7 +61,10 @@ async function processJob(jobs: Jobs, gateway: ToolGateway, job: Job, provider: 
     // enforces scope before any of them runs. Best-effort — never fails a completed job.
     if (config.ENABLE_AGENT) {
       try {
-        const actions = await planFollowUps(provider, result.observation);
+        // When active testing is armed, the planner may also choose injection-suite probes; the gateway
+        // still gates every probe by scope + the runtime flag, and only reviewed endpoints are probed.
+        const catalog = config.ALLOW_ACTIVE_TESTING ? [...researchCatalog(), ...exploitCatalog()] : researchCatalog();
+        const actions = await planFollowUps(provider, result.observation, catalog);
         for (const action of actions) await jobs.enqueue(job.program_id, job.asset_id, action);
         if (actions.length) log('AGENT_PLAN', { program: job.program_id, job: job.id, result: actions.join('+') });
       } catch { /* planning is advisory; the deterministic follow-ups already ran */ }

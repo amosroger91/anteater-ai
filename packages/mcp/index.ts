@@ -1,9 +1,10 @@
 import type pg from 'pg';
 import type { Config } from '../shared/config.js';
-import { ActionSchema, authorize, PolicySchema, targetForAction } from '../scope-engine/index.js';
+import { ActionSchema, authorize, authorizeActive, isActiveAction, PolicySchema, targetForAction } from '../scope-engine/index.js';
 import { acquireRate, type Job } from '../research-state/jobs.js';
 import { log } from '../shared/log.js';
 import { executePassiveHttp, probeAuthorizedGets, parseLabTargetAllow, type PassiveDeps } from '../web-executor/index.js';
+import { runActiveProbe, parametersFor, type ProbeFetch } from '../active-probes/index.js';
 import type { ResearchDeps } from '../application-research/index.js';
 import { ProgramBudget } from '../budget/index.js';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -42,8 +43,11 @@ export class ToolGateway {
         [assetId,job.program_id,job.id,job.lease_token,job.action,job.lease_epoch]);
       const row = result.rows[0];
       if (!row) throw new Error('unknown_asset_or_lost_lease');
-      const target = targetForAction(row.url, job.action);
-      const decision = authorize(row.policy,target,tool,this.config());
+      // Active probes authorize by HOST scope against the asset origin (no single fixed path); passive
+      // actions authorize their exact fixed path. Either way the request is re-checked here every call.
+      const active = isActiveAction(job.action);
+      const target = active ? String(row.url) : targetForAction(row.url, job.action);
+      const decision = active ? authorizeActive(row.policy, target, job.action, this.config()) : authorize(row.policy, target, tool, this.config());
       if (!decision.allowed) { log('TOOL_DENIED',{ program:job.program_id, job:job.id, result:decision.reason }); throw new Error(decision.reason); }
       const policy = PolicySchema.parse(row.policy);
       if (policy.programId !== job.program_id) throw new Error('policy_program_mismatch');
@@ -51,6 +55,50 @@ export class ToolGateway {
       return { row, policy, target };
     };
     const { row, policy, target } = await validate();
+    // Active probing: run the injection-suite oracles against the program's REVIEWED parameterized
+    // endpoints for this host. Each probe request is re-authorized by host scope (authorizeActive),
+    // rate-reserved, and kill-switch checked. Confirmed findings come back as submittable signals.
+    if (isActiveAction(job.action)) {
+      if (!config.ALLOW_ACTIVE_TESTING) throw new Error('active_testing_disabled');
+      const host = new URL(String(row.url)).hostname;
+      const endpoints = (policy.activeEndpoints ?? []).filter(endpoint => { try { return new URL(endpoint).hostname === host; } catch { return false; } });
+      const reserveActive = async (probeUrl: string) => {
+        signal?.throwIfAborted();
+        const current = await validate();
+        if (JSON.stringify(current.policy) !== JSON.stringify(policy)) throw new Error('policy_changed');
+        const currentConfig = this.config();
+        if (!currentConfig.ALLOW_ACTIVE_TESTING) throw new Error('active_testing_disabled');
+        const allowed = authorizeActive(current.policy, probeUrl, job.action, currentConfig);
+        if (!allowed.allowed) throw new Error(allowed.reason);
+        if (!await acquireRate(this.pool, job.program_id, current.policy.requestsPerSecond, currentConfig.MAX_REQUEST_RATE)) throw new Error('rate_limited');
+        await assertExecutionAllowed(this.pool, job.program_id, job.lease_epoch, currentConfig.GLOBAL_KILL_SWITCH);
+      };
+      const fetchUrl: ProbeFetch = async probeUrl => {
+        const observation = await executePassiveHttp(probeUrl, {
+          maxBytes: config.MAX_RESPONSE_BYTES, signal, allowQuery: true, returnBody: true,
+          deps: this.executors.passive, labTargets: parseLabTargetAllow(config.ALLOW_PRIVATE_LAB_TARGETS, config.LAB_TARGET_HOSTS),
+          beforeRequest: async () => {
+            for (let attempt = 0; ; attempt++) {
+              try { await reserveActive(probeUrl); return; }
+              catch (error) { if (!(error instanceof Error) || error.message !== 'rate_limited' || attempt >= 7) throw error; await sleep(250, undefined, { signal }); }
+            }
+          },
+        });
+        return { status: typeof observation.status === 'number' ? observation.status : 0, headers: (observation.headers as Record<string, string>) ?? {}, body: typeof observation.rawBody === 'string' ? observation.rawBody : '' };
+      };
+      const signals: Array<{ code: string; severity: string; detail: string }> = [];
+      const probed: string[] = [];
+      for (const endpoint of endpoints) {
+        signal?.throwIfAborted();
+        const params = parametersFor(endpoint);
+        if (!params.length) continue;
+        const found = await runActiveProbe(job.action, fetchUrl, endpoint, params, { signal });
+        probed.push(endpoint);
+        for (const found0 of found) signals.push({ code: found0.code, severity: found0.severity, detail: found0.detail });
+      }
+      log('TOOL_EXECUTED', { program: job.program_id, job: job.id, asset: assetId, result: 'active-probe' });
+      return { kind: 'OBSERVATION', executor: 'active-probe', assetId, target: String(row.url), action: job.action, probed, signals };
+    }
     const application = job.action === 'research_application';
     if (application && (!config.ENABLE_APPLICATION_RESEARCH || !policy.application)) throw new Error('application_research_not_enabled');
     const fixture = row.platform === 'fixture' && job.program_id === 'fixture-company' && assetId === 'fixture-api' && row.url === 'https://api.example.test';

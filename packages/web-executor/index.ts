@@ -21,6 +21,11 @@ export interface PassiveOptions {
   timeoutMs?: number;
   deps?: PassiveDeps;
   labTargets?: LabTargetAllow;
+  // Active probing only: permit a query string on the target and return the raw (bounded) body so an
+  // in-process oracle can analyse it. The raw body is never stored; the caller derives a fixed-detail
+  // finding from it. Passive callers leave both off and keep the no-query / snippet-only behaviour.
+  allowQuery?: boolean;
+  returnBody?: boolean;
 }
 // Private-address relaxation for an explicit owned-lab hostname list. Loopback and link-local
 // stay blocked inside addressBlockReason. A host that is not in the set never receives allowPrivate.
@@ -76,7 +81,7 @@ function cleanHeaders(headers: IncomingHttpHeaders): Record<string, string> {
 /** One DNS-pinned HTTPS GET with a total deadline, byte cap, strict TLS and no redirects. */
 export async function executePassiveHttp(target: string, options: PassiveOptions): Promise<Record<string, unknown>> {
   const url = new URL(target);
-  if (url.protocol !== 'https:' || (url.port && url.port !== '443') || url.username || url.password || url.search || url.hash) throw new Error('unsupported_target_form');
+  if (url.protocol !== 'https:' || (url.port && url.port !== '443') || url.username || url.password || url.hash || (url.search && !options.allowQuery)) throw new Error('unsupported_target_form');
   if (!Number.isInteger(options.maxBytes) || options.maxBytes < 1024 || options.maxBytes > 1048576) throw new Error('invalid_response_limit');
   const timeoutMs = options.timeoutMs ?? 10000;
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 60000) throw new Error('invalid_timeout');
@@ -119,7 +124,7 @@ export async function executePassiveHttp(target: string, options: PassiveOptions
       let settled = false;
       const request = deps.request({
         host: selected.address, family: selected.family, port: 443, servername: url.hostname,
-        path: url.pathname || '/', method: 'GET', signal: controller.signal,
+        path: (url.pathname || '/') + (options.allowQuery ? url.search : ''), method: 'GET', signal: controller.signal,
         headers: { host: url.host, 'user-agent': 'anteater-ai passive research (read-only)', 'accept-encoding': 'identity', accept: 'text/html,application/json,application/xml,text/plain;q=0.8,*/*;q=0.1' },
         rejectUnauthorized: true, maxHeaderSize: 16384, agent: false,
       } as https.RequestOptions, response => {
@@ -151,6 +156,7 @@ export async function executePassiveHttp(target: string, options: PassiveOptions
           resolve({ ...base, ip: selected.address, status: response.statusCode ?? 0, headers, contentType,
             bodyBytes: bytes, bodySha256: createHash('sha256').update(captured).digest('hex'), hashScope: 'captured_bytes',
             bodySnippet: readable ? guardModelContext(captured.toString('utf8').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').slice(0, 2048)).redacted : null,
+            ...(options.returnBody ? { rawBody: captured.toString('utf8') } : {}),
             truncated, signals });
         };
         response.on('data', (chunk: Buffer) => {

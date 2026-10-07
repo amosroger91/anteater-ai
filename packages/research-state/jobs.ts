@@ -5,7 +5,7 @@ import { ContractSchema, transition, verifyCandidate, type Responder, type State
 import { retest, type RetestResult } from '../findings/retest.js';
 import { encrypt } from '../evidence/index.js';
 import { transaction } from './db.js';
-import { authorize, PolicySchema, targetForAction, type Action } from '../scope-engine/index.js';
+import { authorize, authorizeActive, isActiveAction, PolicySchema, targetForAction, type Action } from '../scope-engine/index.js';
 import { followUpActions, jobKey } from '../web-executor/planning.js';
 import { hashRecord } from '../audit/index.js';
 import { insertSubmission } from '../ledger/index.js';
@@ -13,10 +13,14 @@ import { NON_RETRYABLE } from '../operations/index.js';
 import { assertExecutionAllowed, readExecutionControl } from './control.js';
 
 const GENESIS = '0'.repeat(64);
-// Exact-content-signature exposure codes that are submittable on sight (readable source/secrets/admin
-// surface). A match is routed to HUMAN_REVIEW rather than left at OBSERVATION. Positional/weaker signals
-// (e.g. open_redirect_to_takeover) are deliberately excluded and stay OBSERVATION.
-const SUBMITTABLE_EXPOSURE = new Set(['exposed_vcs', 'exposed_admin', 'secrets_in_js', 'subdomain_takeover']);
+// Finding codes that are submittable on sight and routed to HUMAN_REVIEW (not left at OBSERVATION):
+// exact-content-signature exposures (readable source/secrets/admin, dangling-CNAME takeover) and the
+// confirmed active-probe classes (injection suite). Each is a high-confidence, read-only proof the
+// operator reports. Positional/weaker signals (e.g. open_redirect_to_takeover) stay OBSERVATION.
+const SUBMITTABLE_EXPOSURE = new Set([
+  'exposed_vcs', 'exposed_admin', 'secrets_in_js', 'subdomain_takeover',
+  'reflected_xss', 'sqli', 'open_redirect', 'ssrf',
+]);
 
 export interface Job {
   id: string; program_id: string; asset_id: string; action: Action; policy_revision: string;
@@ -45,8 +49,14 @@ export class Jobs {
     if (!row) return;
     const parsed = PolicySchema.safeParse(row.policy);
     if (!parsed.success || parsed.data.programId !== program || (expectedRevision && parsed.data.revision !== expectedRevision)) return;
-    const target = targetForAction(row.url, action);
-    if (this.killed() || !authorize(parsed.data, target, action, { GLOBAL_KILL_SWITCH: false }).allowed) return;
+    // Active probes have no single fixed path; authorize them by HOST scope against the asset origin.
+    // Passive actions keep exact-path authorization. The runtime ALLOW_ACTIVE_TESTING gate is enforced
+    // at execution, so enqueue uses a scope-only check here.
+    const target = isActiveAction(action) ? row.url : targetForAction(row.url, action);
+    const allowed = isActiveAction(action)
+      ? authorizeActive(parsed.data, row.url, action, { GLOBAL_KILL_SWITCH: false, ALLOW_ACTIVE_TESTING: true }).allowed
+      : authorize(parsed.data, target, action, { GLOBAL_KILL_SWITCH: false }).allowed;
+    if (this.killed() || !allowed) return;
     const dedupeKey = key ?? jobKey(program, asset, parsed.data.revision, target, action);
     const id = randomUUID();
     const inserted = await c.query(`
@@ -102,7 +112,13 @@ export class Jobs {
       const current = await c.query(`SELECT a.url,s.policy FROM assets a JOIN scope_rules s ON s.program_id=a.program_id
         WHERE a.id=$1 AND a.program_id=$2 AND a.active=true AND a.policy_revision=$3 FOR SHARE OF a,s`, [job.asset_id, job.program_id, job.policy_revision]);
       const row = current.rows[0];
-      if (!row || row.policy.revision !== job.policy_revision || !authorize(row.policy, targetForAction(row.url, job.action), job.action, { GLOBAL_KILL_SWITCH: false }).allowed) throw new Error('policy_changed');
+      if (!row || row.policy.revision !== job.policy_revision) throw new Error('policy_changed');
+      // Active actions re-authorize by host scope against the asset origin (no fixed path); passive
+      // actions re-authorize their exact fixed path. The runtime active gate is enforced at execution.
+      const reauthorized = isActiveAction(job.action)
+        ? authorizeActive(row.policy, String(row.url), job.action, { GLOBAL_KILL_SWITCH: false, ALLOW_ACTIVE_TESTING: true }).allowed
+        : authorize(row.policy, targetForAction(row.url, job.action), job.action, { GLOBAL_KILL_SWITCH: false }).allowed;
+      if (!reauthorized) throw new Error('policy_changed');
       const changed = await c.query(`UPDATE research_jobs SET status='completed',result=$3,lease_token=NULL,lease_until=NULL,lease_heartbeat_at=NULL
         WHERE id=$1 AND lease_token=$2 AND status='running' AND lease_until>now()
           AND lease_epoch=$4 AND EXISTS(SELECT 1 FROM runtime_control WHERE id=1 AND global_kill=false AND epoch=$4)
