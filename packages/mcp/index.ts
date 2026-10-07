@@ -8,7 +8,7 @@ import type { ResearchDeps } from '../application-research/index.js';
 import { ProgramBudget } from '../budget/index.js';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { assertExecutionAllowed } from '../research-state/control.js';
-import { VCS_READ_PATHS } from '../web-checks/index.js';
+import { EXPOSURE_READ_PATHS } from '../web-checks/index.js';
 import { createCleanupJournal } from '../application-research/cleanup.js';
 import { loadOperatorEnvironment } from '../setup/operator.js';
 
@@ -105,7 +105,7 @@ export class ToolGateway {
     if (job.action === 'inspect_http_target' && observation.error === undefined) {
       const probes = await probeAuthorizedGets({
         host: new URL(target).hostname, policy, killSwitch: config.GLOBAL_KILL_SWITCH, enabled: config.ENABLE_PASSIVE_HTTP,
-        paths: VCS_READ_PATHS, maxBytes: config.MAX_RESPONSE_BYTES, deps: this.executors.passive, signal,
+        paths: EXPOSURE_READ_PATHS, maxBytes: config.MAX_RESPONSE_BYTES, deps: this.executors.passive, signal,
         labTargets: parseLabTargetAllow(config.ALLOW_PRIVATE_LAB_TARGETS, config.LAB_TARGET_HOSTS),
         beforeRequest: async probeTarget => {
           for (let attempt = 0; ; attempt++) {

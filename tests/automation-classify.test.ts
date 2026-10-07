@@ -17,4 +17,9 @@ test('automation class follows explicit phrases and defaults to manual-only', ()
   assert.equal(classifyAutomation('We have no automated tools allowed on this program.'), 'prohibited');
   assert.equal(classifyAutomation('Automated tools are allowed only with written permission.'), 'manual-only');
   assert.equal(classifyAutomation('AUTOMATED TOOLS ARE ALLOWED.'), 'permitted');
+  // Negative-permission and imperative forms the earlier phrase list missed (audit HIGH #1).
+  assert.equal(classifyAutomation('Automated scanning is not permitted.'), 'prohibited');
+  assert.equal(classifyAutomation('Automated testing is not allowed on this program.'), 'prohibited');
+  assert.equal(classifyAutomation('Do not run automated scanners.'), 'prohibited');
+  assert.equal(classifyAutomation('Please refrain from automated testing.'), 'prohibited');
 });

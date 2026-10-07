@@ -27,6 +27,23 @@ const PROHIBITED = [
   'use of automated tools is prohibited',
   'use of automated tools is not permitted',
   'use of scanners is prohibited',
+  // Negative-permission forms the earlier list missed ("... is not permitted/allowed").
+  'scanning is not permitted',
+  'automated scanning is not permitted',
+  'automated scanning is not allowed',
+  'automated testing is not permitted',
+  'automated testing is not allowed',
+  'automation is not supported',
+  // Imperative forms ("do not run ...", "refrain from ...").
+  'do not run automated',
+  'dont run automated',
+  'do not run scanners',
+  'dont run scanners',
+  'do not run any automated',
+  'refrain from automated',
+  'refrain from scanning',
+  'refrain from using automated',
+  'refrain from using scanners',
 ];
 
 const PERMITTED = [

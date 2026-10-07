@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { authorize, targetForAction, type Action } from '../scope-engine/index.js';
 import type { LLMProvider } from '../llm/index.js';
 import { boundedObservation } from '../agent-runtime/index.js';
+import { log } from '../shared/log.js';
 
 // Autonomous decision loop (the agentic core). A model DRIVES the campaign by choosing the next step
 // from a fixed action catalog — it never emits commands or free-form targets. Every chosen action is
@@ -32,6 +33,7 @@ export interface AgentResult { host: string; steps: AgentStep[]; stopped: AgentS
 export type AgentExecutor = (actionId: string, action: Action, target: string, signal?: AbortSignal) => Promise<unknown>;
 
 const PlanSchema = z.object({ actionId: z.string().min(1).max(80), rationale: z.string().max(400).optional() }).strict();
+const PLAN_JSON_SCHEMA = z.toJSONSchema(PlanSchema);
 
 const PLAN_SYSTEM = [
   'You are selecting the single most useful next action for authorized security research on one host.',
@@ -49,10 +51,11 @@ export async function planNext(model: LLMProvider, input: { host: string; catalo
     recent: input.history.slice(-12),
   });
   try {
-    const response = await model.generate({ system: PLAN_SYSTEM, input: body });
+    const response = await model.generate({ system: PLAN_SYSTEM, input: body, schema: PLAN_JSON_SCHEMA });
     const parsed = PlanSchema.safeParse(JSON.parse(response.text));
-    return parsed.success ? parsed.data.actionId : 'stop';
-  } catch { return 'stop'; }
+    if (!parsed.success) { log('AGENT_PLAN_PARSE_FAILED', { result: 'next_invalid_shape' }); return 'stop'; }
+    return parsed.data.actionId;
+  } catch { log('AGENT_PLAN_PARSE_FAILED', { result: 'next_unparseable' }); return 'stop'; }
 }
 
 export interface RunAgentInput {
@@ -109,6 +112,7 @@ export function researchCatalog(): AgentActionDef[] {
 }
 
 const FollowSchema = z.object({ actionIds: z.array(z.string().min(1).max(80)).max(8) }).strict();
+const FOLLOW_JSON_SCHEMA = z.toJSONSchema(FollowSchema);
 
 // The model picks which follow-ups to run next from the catalog, given the observation. Unparseable
 // or out-of-catalog ids are dropped, so the choice can never escape the catalog. Returns the mapped
@@ -121,12 +125,12 @@ export async function planFollowUps(model: LLMProvider, observation: unknown, ca
   ].join(' ');
   const body = JSON.stringify({ catalog: catalog.map(a => ({ id: a.id, description: a.description })), observation: boundedObservation(observation) });
   try {
-    const response = await model.generate({ system, input: body });
+    const response = await model.generate({ system, input: body, schema: FOLLOW_JSON_SCHEMA });
     const parsed = FollowSchema.safeParse(JSON.parse(response.text));
-    if (!parsed.success) return [];
+    if (!parsed.success) { log('AGENT_PLAN_PARSE_FAILED', { result: 'followups_invalid_shape' }); return []; }
     const byId = new Map(catalog.map(a => [a.id, a.action]));
     const actions: Action[] = [];
     for (const id of parsed.data.actionIds) { const action = byId.get(id); if (action && !actions.includes(action)) actions.push(action); }
     return actions;
-  } catch { return []; }
+  } catch { log('AGENT_PLAN_PARSE_FAILED', { result: 'followups_unparseable' }); return []; }
 }

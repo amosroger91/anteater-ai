@@ -44,6 +44,10 @@ export async function autoIntakeHackerOne(input: AutoIntakeInput): Promise<AutoI
     try {
       const raw = await fetchProgram(handle, fetchLike, { authorization: input.authorization, signal: input.signal });
       const result = compileIntake(raw, autoApproval(raw, approver, now, ttlDays), now);
+      // Only automation-permitted programs may be engaged, exactly as the setup-UI path requires.
+      // Anything manual-only or prohibited is skipped rather than queued — a program's automation
+      // rule is the line this project exists to hold, and breaking it can get an account banned.
+      if (result.automation !== 'permitted') { skipped.push({ handle, reason: result.refused ?? result.automation }); continue; }
       if (result.programs.length) compiled.push(result);
       else skipped.push({ handle, reason: result.refused ?? 'no_program' });
     } catch (error) {

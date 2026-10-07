@@ -74,6 +74,10 @@ test('manual-only stays passive, prohibited is not enqueued, and an excluded hos
   assert.equal(permitted.automation, 'permitted');
   assert.equal(permitted.programs[0]?.policy.requestsPerSecond, 2);
   assert.ok(permitted.programs[0]?.policy.allowedActions.includes('research_application'));
+  // The compiled policy allows the read-only exposure probes, so exposed source/secret files are
+  // actually checked on a real program (audit HIGH #10 — these paths never ran before).
+  for (const path of ['/.git/config', '/.env', '/.DS_Store', '/actuator']) assert.ok(permitted.programs[0]?.policy.allowedPaths.includes(path), `allowedPaths missing ${path}`);
+  assert.ok(permitted.programs[0]?.policy.allowedPaths.includes('/'));
   assert.equal(jobsForIntake(permitted, 'research_application').length, 1);
   assert.equal(jobsForIntake(permitted, 'inspect_openapi').length, 1);
 

@@ -18,6 +18,8 @@ function program(handle: string, policy: string, assetHost: string) {
 const routes: Record<string, unknown> = {
   ...program('good-co', 'Testing allowed. Automated tools are allowed. Please be reasonable.', 'app.good-co.test'),
   ...program('noauto-co', 'No automated scanning. Manual testing only.', 'app.noauto-co.test'),
+  // Ambiguous policy with no automation phrase either way -> manual-only (not permitted, not prohibited).
+  ...program('coord-co', 'Please coordinate with us before testing. Keep a reasonable rate limit.', 'app.coord-co.test'),
 };
 
 const stub: FetchLike = async (url) => {
@@ -49,6 +51,12 @@ test('mixed handles: the permitted program is taken, the prohibited one skipped'
   const { compiled, skipped } = await autoIntakeHackerOne({ authorization: 'Basic x', handles: ['good-co', 'noauto-co'], fetchLike: stub });
   assert.deepEqual(compiled.flatMap(c => c.programs.map(p => p.id)), ['h1-good-co']);
   assert.deepEqual(skipped.map(s => s.handle), ['noauto-co']);
+});
+
+test('a manual-only program is skipped by the handles path, not scanned (audit HIGH #1)', async () => {
+  const { compiled, skipped } = await autoIntakeHackerOne({ authorization: 'Basic x', handles: ['coord-co'], fetchLike: stub, approver: 'Ada Lovelace' });
+  assert.equal(compiled.length, 0);                                   // nothing compiled for a manual-only program
+  assert.deepEqual(skipped, [{ handle: 'coord-co', reason: 'manual-only' }]);
 });
 
 test('empty handle list is refused (never discovers programs on its own)', async () => {

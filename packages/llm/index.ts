@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
-export interface LLMRequest { system: string; input: string }
+// `schema` is the JSON Schema the model's output must conform to (Ollama `format`). Callers that want a
+// shape other than the analysis object (e.g. the agent planner's {actionIds}) pass their own schema;
+// omitting it keeps the analysis schema so existing analysis callers are unchanged.
+export interface LLMRequest { system: string; input: string; schema?: unknown }
 export interface LLMResponse {
   text: string;
   model: string;
@@ -85,7 +88,7 @@ export class OllamaProvider implements LLMProvider {
         model: this.model,
         stream: false,
         think: false,
-        format: AnalysisJsonSchema,
+        format: request.schema ?? AnalysisJsonSchema,
         options: SAMPLING_OPTIONS,
         messages: [{ role: 'system', content: request.system }, { role: 'user', content: request.input }],
       }),

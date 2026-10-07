@@ -61,3 +61,16 @@ test('planFollowUps returns nothing for a non-conforming model (safe default)', 
   const actions = await planFollowUps(new FixtureLLM(), { kind: 'OBSERVATION', status: 200 });
   assert.deepEqual(actions, []);  // FixtureLLM returns an analysis object, not actionIds -> no follow-ups
 });
+
+test('planFollowUps requests the plan schema and maps a reply from a format-honoring provider (audit HIGH #2)', async () => {
+  let seenSchema: unknown;
+  const formatAware: LLMProvider = {
+    async generate(req): Promise<LLMResponse> {
+      seenSchema = req.schema;                                    // the planner must ask for its own shape
+      return { text: '{"actionIds":["robots","openapi"]}', model: 'format-aware' };
+    },
+  };
+  const actions = await planFollowUps(formatAware, { kind: 'OBSERVATION', status: 200 });
+  assert.ok(seenSchema && typeof seenSchema === 'object');        // a JSON schema was passed through, not left to the analysis default
+  assert.deepEqual(actions, ['inspect_robots', 'inspect_openapi']);
+});

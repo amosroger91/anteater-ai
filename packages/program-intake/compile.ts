@@ -8,6 +8,7 @@ import { candidateJobs, type JobSpec } from '../discovery/enqueue.js';
 import type { Candidate } from '../discovery/index.js';
 import { sha256Hex, verifyApproval } from '../provenance/index.js';
 import { authorize, targetForAction, type Action } from '../scope-engine/index.js';
+import { EXPOSURE_READ_PATHS } from '../web-checks/index.js';
 import { classifyAutomation, type AutomationClass } from './classify.js';
 import { hackerOneProgramUrls, rateRulesFromPolicy, RawProgramSchema, type RawProgram } from './hackerone.js';
 
@@ -163,7 +164,10 @@ function buildProgram(raw: RawProgram, approval: IntakeApproval, automation: Aut
   const policy = {
     programId: id, revision: `${approval.revision}:${sha256Hex(source).slice(0, 16)}`, sourceUrl: raw.sourceUrl,
     reviewed: true as const, expiresAt: approval.expiresAt, allowed: scope.allowed, excluded: scope.excluded,
-    allowedActions, allowedPaths: passivePaths(), schemes: ['https' as const], ports: [443 as const],
+    // Passive action paths PLUS the read-only exposure probes, so the gateway may actually request
+    // /.git/config, /.env, /.DS_Store and /actuator on an in-scope host. Without these the scope engine
+    // denies the path and the exposed-source/secret detectors never run on a real program.
+    allowedActions, allowedPaths: [...passivePaths(), ...EXPOSURE_READ_PATHS], schemes: ['https' as const], ports: [443 as const],
     requestsPerSecond: raw.rate.requestsPerSecond, application: ApplicationSchema.parse({}),
   };
   const assets = scope.concrete.filter(host => authorize(policy, `https://${host}/`, 'inspect_http_target', { GLOBAL_KILL_SWITCH: false }).allowed)

@@ -148,3 +148,9 @@ export function paidReadFindings(v: HttpResponseView): WebFinding[] {
 }
 
 export const VCS_READ_PATHS = ['/.git/config', '/.env', '/.DS_Store'] as const;
+
+// Read-only exposure probes that reach a paid finding: source-control/env files plus a Spring Boot
+// actuator index. Each is one authorized GET and only fires a finding on an exact content signature,
+// so a normal page or 404 is never a hit. The compiled policy must list these in allowedPaths for the
+// gateway to request them (otherwise the scope engine denies the path and nothing is probed).
+export const EXPOSURE_READ_PATHS = [...VCS_READ_PATHS, '/actuator'] as const;
