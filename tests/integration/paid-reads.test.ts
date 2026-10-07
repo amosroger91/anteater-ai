@@ -81,7 +81,8 @@ test('an authorized source-file signature is stored as an observation and the fi
     assert.equal(passive.paths.filter(path => path === '/').length, 1);
     const finding = await pool.query(`SELECT status, body FROM findings WHERE body->'signal'->>'code' = 'exposed_vcs'`);
     assert.equal(finding.rowCount, 1);
-    assert.equal(finding.rows[0].status, 'OBSERVATION');
+    // An exact git-config signature is submittable on sight: routed to HUMAN_REVIEW, not left at OBSERVATION.
+    assert.equal(finding.rows[0].status, 'HUMAN_REVIEW');
     assert.equal(finding.rows[0].body.signal.detail, 'git config signature at /.git/config');
     const stored = JSON.stringify((await pool.query('SELECT body FROM observations')).rows) + JSON.stringify(finding.rows);
     assert.ok(!stored.includes(SECRET));

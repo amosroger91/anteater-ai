@@ -13,6 +13,10 @@ import { NON_RETRYABLE } from '../operations/index.js';
 import { assertExecutionAllowed, readExecutionControl } from './control.js';
 
 const GENESIS = '0'.repeat(64);
+// Exact-content-signature exposure codes that are submittable on sight (readable source/secrets/admin
+// surface). A match is routed to HUMAN_REVIEW rather than left at OBSERVATION. Positional/weaker signals
+// (e.g. open_redirect_to_takeover) are deliberately excluded and stay OBSERVATION.
+const SUBMITTABLE_EXPOSURE = new Set(['exposed_vcs', 'exposed_admin', 'secrets_in_js']);
 
 export interface Job {
   id: string; program_id: string; asset_id: string; action: Action; policy_revision: string;
@@ -113,7 +117,13 @@ export class Jobs {
       }
       const signals = Array.isArray(value.signals) ? value.signals.filter(signal => signal && typeof signal === 'object') : [];
       for (const signal of signals) {
-        await c.query(`INSERT INTO findings(id,program_id,status,body) VALUES($1,$2,'OBSERVATION',$3)`, [randomUUID(), job.program_id, JSON.stringify({ jobId: job.id, observationId, signal })]);
+        // Exact-content-signature exposures (readable source/secrets/actuator) are high-confidence,
+        // read-only, and directly submittable, so they go straight to HUMAN_REVIEW for the operator to
+        // report. Weaker/positional signals stay OBSERVATION. Neither can reach VERIFIED/SUBMITTED here.
+        const code = (signal as Record<string, unknown>).code;
+        const submittable = typeof code === 'string' && SUBMITTABLE_EXPOSURE.has(code);
+        if (submittable) await c.query(`INSERT INTO findings(id,program_id,status,body,verified_by) VALUES($1,$2,'HUMAN_REVIEW',$3,'exposure-signature-v1')`, [randomUUID(), job.program_id, JSON.stringify({ jobId: job.id, observationId, signal })]);
+        else await c.query(`INSERT INTO findings(id,program_id,status,body) VALUES($1,$2,'OBSERVATION',$3)`, [randomUUID(), job.program_id, JSON.stringify({ jobId: job.id, observationId, signal })]);
       }
       if (value.executor === 'application-browser' && Array.isArray(value.findings)) for (const item of value.findings) {
         const finding = item as { verifier?: string; code?: string; evidence?: unknown[] };
