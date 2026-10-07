@@ -1,5 +1,5 @@
 import https from 'node:https';
-import { lookup } from 'node:dns/promises';
+import { lookup, resolveCname } from 'node:dns/promises';
 import { createHash } from 'node:crypto';
 import type { ClientRequest, IncomingMessage, IncomingHttpHeaders, RequestOptions } from 'node:http';
 import { addressBlockReason, findingsFromResponse } from '../../scripts/posture-check.js';
@@ -10,6 +10,9 @@ import { guardModelContext } from '../inert/index.js';
 export interface PassiveDeps {
   lookup(hostname: string): Promise<Array<{ address: string; family: number }>>;
   request(options: RequestOptions, callback: (response: IncomingMessage) => void): ClientRequest;
+  // Optional, read-only: the host's CNAME target, used only as subdomain-takeover detector metadata.
+  // It never changes which address the socket connects to (that stays pinned to the A/AAAA lookup).
+  resolveCname?(hostname: string): Promise<string | undefined>;
 }
 export interface PassiveOptions {
   maxBytes: number;
@@ -37,6 +40,7 @@ export function labPrivateAllowed(hostname: string, allow: LabTargetAllow | unde
 const realDeps: PassiveDeps = {
   lookup: hostname => lookup(hostname, { all: true, verbatim: true }),
   request: (options, callback) => https.request(options, callback),
+  resolveCname: async hostname => { try { const names = await resolveCname(hostname); return names[0]; } catch { return undefined; } },
 };
 const HEADER_NAMES = new Set(['content-type', 'content-length', 'cache-control', 'last-modified', 'server', 'x-powered-by', 'strict-transport-security', 'content-security-policy', 'x-content-type-options', 'x-frame-options', 'referrer-policy', 'permissions-policy']);
 const RETRYABLE_TRANSPORT = new Set(['enotfound', 'eai_again', 'econnreset', 'econnrefused', 'etimedout', 'econnaborted', 'request_failed', 'response_aborted', 'enetunreach', 'ehostunreach', 'esockettimedout']);
@@ -107,6 +111,10 @@ export async function executePassiveHttp(target: string, options: PassiveOptions
       catch (error) { gateError = error; throw error; }
     }
     controller.signal.throwIfAborted();
+    // Best-effort CNAME (read-only DNS metadata for the takeover detector). Never fatal, never pins the socket.
+    let cname: string | undefined;
+    if (deps.resolveCname) { try { cname = await abortable(deps.resolveCname(url.hostname)); } catch { cname = undefined; } }
+    controller.signal.throwIfAborted();
     return await new Promise<Record<string, unknown>>((resolve, reject) => {
       let settled = false;
       const request = deps.request({
@@ -134,6 +142,7 @@ export async function executePassiveHttp(target: string, options: PassiveOptions
             body: captured.toString('utf8'),
             path: url.pathname || '/',
             requestHost: url.hostname,
+            cname,
           })) {
             if (seen.has(finding.code)) continue;
             seen.add(finding.code);

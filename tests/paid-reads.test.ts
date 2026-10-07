@@ -100,3 +100,39 @@ test('a patched signature is fetched and produces no source-file finding', async
   assert.deepEqual(clean.probed, [...paths]);
   assert.deepEqual(clean.signals, []);
 });
+
+// A dangling-CNAME subdomain serving an unclaimed-service 404 is a takeover candidate, decided from the
+// one response plus the resolved CNAME metadata.
+function respondRoot(status: number, body: string, cname?: string): PassiveDeps {
+  return {
+    lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+    ...(cname ? { resolveCname: async () => cname } : {}),
+    request: (_input: RequestOptions, callback) => {
+      const request = new EventEmitter() as ClientRequest;
+      const response = new PassThrough() as unknown as IncomingMessage;
+      response.statusCode = status;
+      response.headers = { 'content-type': 'text/html' };
+      request.destroy = () => request;
+      request.end = (() => {
+        queueMicrotask(() => { callback(response); response.emit('data', Buffer.from(body)); response.emit('end'); });
+        return request;
+      }) as ClientRequest['end'];
+      return request;
+    },
+  };
+}
+
+test('a dangling CNAME with an unclaimed-service 404 is a subdomain_takeover signal', async () => {
+  const obs = await executePassiveHttp('https://dangling.lab.example.test/', {
+    maxBytes: 4096, deps: respondRoot(404, "There isn't a GitHub Pages site here.", 'victim.github.io'),
+  });
+  assert.equal(obs.status, 404);
+  assert.ok((obs.signals as Array<{ code: string }>).some(signal => signal.code === 'subdomain_takeover'));
+});
+
+test('the same unclaimed-service 404 is not a takeover without a resolved CNAME', async () => {
+  const obs = await executePassiveHttp('https://dangling.lab.example.test/', {
+    maxBytes: 4096, deps: respondRoot(404, "There isn't a GitHub Pages site here."),   // no resolveCname dep
+  });
+  assert.ok(!(obs.signals as Array<{ code: string }>).some(signal => signal.code === 'subdomain_takeover'));
+});

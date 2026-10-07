@@ -16,7 +16,7 @@ const GENESIS = '0'.repeat(64);
 // Exact-content-signature exposure codes that are submittable on sight (readable source/secrets/admin
 // surface). A match is routed to HUMAN_REVIEW rather than left at OBSERVATION. Positional/weaker signals
 // (e.g. open_redirect_to_takeover) are deliberately excluded and stay OBSERVATION.
-const SUBMITTABLE_EXPOSURE = new Set(['exposed_vcs', 'exposed_admin', 'secrets_in_js']);
+const SUBMITTABLE_EXPOSURE = new Set(['exposed_vcs', 'exposed_admin', 'secrets_in_js', 'subdomain_takeover']);
 
 export interface Job {
   id: string; program_id: string; asset_id: string; action: Action; policy_revision: string;
